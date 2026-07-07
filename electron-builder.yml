@@ -1,0 +1,15 @@
+appId: com.branden.agentic-project-tracker
+productName: Agentic Project Tracker
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Agentic Project Tracker
+npmRebuild: false

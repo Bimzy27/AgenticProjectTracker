@@ -4,6 +4,15 @@
 # Dependencies
 node_modules/
 
+# Build output
+out/
+dist/
+*.tsbuildinfo
+
+# Test output
+test-results/
+playwright-report/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,110 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { _electron as electron, expect, test } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
+
+let app: ElectronApplication
+let page: Page
+let userData: string
+let claudeHome: string
+let repo: string
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync('git', args, { cwd, stdio: 'pipe' })
+}
+
+test.beforeAll(async () => {
+  userData = mkdtempSync(join(tmpdir(), 'apt-e2e-data-'))
+  claudeHome = mkdtempSync(join(tmpdir(), 'apt-e2e-claude-'))
+  repo = mkdtempSync(join(tmpdir(), 'apt-e2e-repo-'))
+
+  // Fixture repo with a commit and a dirty working tree.
+  git(repo, 'init', '-b', 'main')
+  git(repo, 'config', 'user.email', 'e2e@example.com')
+  git(repo, 'config', 'user.name', 'E2E')
+  writeFileSync(join(repo, 'hello.ts'), 'export const greeting = "hello"\n')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-m', 'initial')
+  writeFileSync(join(repo, 'hello.ts'), 'export const greeting = "hello world"\n')
+
+  // Fixture Claude session for this repo.
+  const encoded = repo.replace(/[^a-zA-Z0-9-]/g, '-')
+  const sessionDir = join(claudeHome, 'projects', encoded)
+  mkdirSync(sessionDir, { recursive: true })
+  writeFileSync(
+    join(sessionDir, 'fixture-session.jsonl'),
+    [
+      JSON.stringify({ type: 'summary', summary: 'Fixture session about greetings' }),
+      JSON.stringify({
+        type: 'user',
+        timestamp: '2026-07-01T10:00:00Z',
+        message: { role: 'user', content: 'Change the greeting text' }
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-07-01T10:00:05Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Done, updated hello.ts.' }] }
+      })
+    ].join('\n')
+  )
+
+  app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      APT_USER_DATA_DIR: userData,
+      APT_CLAUDE_HOME: claudeHome,
+      APT_TEST_PICK_DIR: repo
+    }
+  })
+  page = await app.firstWindow()
+})
+
+test.afterAll(async () => {
+  await app?.close()
+  for (const dir of [userData, claudeHome, repo]) rmSync(dir, { recursive: true, force: true })
+})
+
+test('shows the empty dashboard on first launch', async () => {
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await expect(page.getByText('No projects yet')).toBeVisible()
+})
+
+test('registers a project from a local git repository', async () => {
+  await page.getByRole('button', { name: '+ Add project' }).click()
+  await page.getByRole('button', { name: 'Choose directory…' }).click()
+  await expect(page.getByPlaceholder('Project name')).not.toHaveValue('')
+  await page.getByPlaceholder('Project name').fill('E2E Demo')
+  await page.getByPlaceholder('comma, separated, tags').fill('e2e')
+  await page.getByRole('button', { name: 'Add project', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'E2E Demo' })).toBeVisible()
+  await expect(page.getByText('⎇ main')).toBeVisible()
+  await expect(page.getByText('1 changed')).toBeVisible()
+})
+
+test('shows the working tree diff with the modified line', async () => {
+  await page.getByRole('heading', { name: 'E2E Demo' }).click()
+  await expect(page.getByRole('button', { name: 'Working tree' })).toBeVisible()
+  await expect(page.getByText('hello.ts').first()).toBeVisible()
+  await expect(page.getByText('export const greeting = "hello world"').first()).toBeVisible()
+})
+
+test('opens a discovered session transcript', async () => {
+  await page.getByRole('button', { name: 'Sessions' }).click()
+  await page.getByText('Fixture session about greetings').click()
+  await expect(page.getByText('Change the greeting text')).toBeVisible()
+  await expect(page.getByText('Done, updated hello.ts.')).toBeVisible()
+})
+
+test('pipelines tab explains the missing GitHub setup instead of erroring', async () => {
+  await page.getByRole('button', { name: 'Pipelines' }).click()
+  // The fixture repo has no GitHub remote linked, so the repo-link prompt shows.
+  await expect(page.getByText(/Link a GitHub repo|needs a GitHub token/)).toBeVisible()
+})
+
+test('settings shows the not-configured GitHub auth state', async () => {
+  await page.getByRole('button', { name: '⚙ Settings' }).click()
+  await expect(page.getByText(/Status: not configured/)).toBeVisible()
+})
