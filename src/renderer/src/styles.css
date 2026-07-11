@@ -211,6 +211,63 @@ select:focus {
   text-align: center;
 }
 
+/* Info tooltips */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 6px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: Georgia, serif;
+  font-style: italic;
+  vertical-align: text-bottom;
+  cursor: help;
+  user-select: none;
+}
+.info-tip:hover,
+.info-tip:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.info-tip-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 280px;
+  padding: 7px 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  font-size: 12.5px;
+  font-weight: 400;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-style: normal;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  z-index: 20;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-visible .info-tip-bubble {
+  visibility: visible;
+  opacity: 1;
+}
+
 /* Chips and badges */
 .chip {
   padding: 3px 10px;

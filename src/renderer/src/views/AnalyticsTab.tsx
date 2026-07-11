@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { GithubAuthState, Project, ReleaseInfo, TrafficMetrics, TrafficPoint } from '@shared/domain'
+import { InfoTip } from '../components/InfoTip'
 import { tracker } from '../tracker'
 
 export function AnalyticsTab({ project }: { project: Project }): React.JSX.Element {
@@ -29,7 +30,10 @@ export function AnalyticsTab({ project }: { project: Project }): React.JSX.Eleme
   return (
     <div className="analytics-tab">
       <section>
-        <h2>Traffic (last 14 days)</h2>
+        <h2>
+          Traffic (last 14 days)
+          <InfoTip text="Repository traffic from GitHub. GitHub only retains the most recent 14 days, so longer trends are not available. Requires a token with push access to the repo." />
+        </h2>
         {traffic === null ? (
           <div className="empty-state">Loading traffic…</div>
         ) : !traffic.available ? (
@@ -38,14 +42,25 @@ export function AnalyticsTab({ project }: { project: Project }): React.JSX.Eleme
           </div>
         ) : (
           <div className="traffic-charts">
-            <TrafficChart title="Views" points={traffic.views} />
-            <TrafficChart title="Clones" points={traffic.clones} />
+            <TrafficChart
+              title="Views"
+              tip="How many times people viewed the repo on GitHub each day. Hover a bar to see that day's views and how many were unique visitors."
+              points={traffic.views}
+            />
+            <TrafficChart
+              title="Clones"
+              tip="How many times the repo was cloned each day, including clones made by CI systems. Hover a bar to see that day's clones and how many came from unique sources."
+              points={traffic.clones}
+            />
           </div>
         )}
       </section>
 
       <section>
-        <h2>Releases</h2>
+        <h2>
+          Releases
+          <InfoTip text="Published GitHub releases for this repo, newest first. Download counts are lifetime totals per asset - a rough proxy for how many people installed each version." />
+        </h2>
         {releases === null ? (
           <div className="empty-state">Loading releases…</div>
         ) : releases.length === 0 ? (
@@ -93,13 +108,22 @@ function ReleaseCard({ release }: { release: ReleaseInfo }): React.JSX.Element {
 }
 
 /** Minimal dependency-free bar chart. */
-function TrafficChart({ title, points }: { title: string; points: TrafficPoint[] }): React.JSX.Element {
+function TrafficChart({
+  title,
+  tip,
+  points
+}: {
+  title: string
+  tip: string
+  points: TrafficPoint[]
+}): React.JSX.Element {
   const max = Math.max(1, ...points.map((p) => p.count))
   const total = points.reduce((sum, p) => sum + p.count, 0)
   return (
     <div className="traffic-chart">
       <h3>
         {title} <span className="muted">{total} total</span>
+        <InfoTip text={tip} />
       </h3>
       {points.length === 0 ? (
         <div className="empty-state">No data.</div>
