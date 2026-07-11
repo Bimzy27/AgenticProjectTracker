@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import type {
   AddProjectInput,
+  DelegationSummary,
   DirectoryInspection,
   Project,
   ProjectPatch,
@@ -9,6 +10,7 @@ import type {
 } from '@shared/domain'
 import type { GitService } from './GitService'
 import type { PipelineService } from './PipelineService'
+import type { RunOrchestrator } from './RunOrchestrator'
 import type { SessionService } from './SessionService'
 
 /** Orchestrates registration validation and per-project status summaries. */
@@ -23,7 +25,8 @@ export class ProjectService {
     },
     private readonly git: GitService,
     private readonly sessions: Pick<SessionService, 'attentionCounts'>,
-    private readonly pipelines: Pick<PipelineService, 'getSummary'>
+    private readonly pipelines: Pick<PipelineService, 'getSummary'>,
+    private readonly delegation: Pick<RunOrchestrator, 'delegationSummary'>
   ) {}
 
   list(): Project[] {
@@ -72,7 +75,8 @@ export class ProjectService {
         changedFileCount: 0,
         sessionCount: 0,
         sessionsNeedingAttention: 0,
-        pipeline: null
+        pipeline: null,
+        delegation: this.safeDelegation(id)
       }
     }
     const [repo, counts] = await Promise.all([
@@ -87,7 +91,23 @@ export class ProjectService {
       changedFileCount: repo.changedFileCount,
       sessionCount: counts.total,
       sessionsNeedingAttention: counts.needingAttention,
-      pipeline: this.pipelines.getSummary(id)
+      pipeline: this.pipelines.getSummary(id),
+      delegation: this.safeDelegation(id)
+    }
+  }
+
+  private safeDelegation(projectId: string): DelegationSummary {
+    try {
+      return this.delegation.delegationSummary(projectId)
+    } catch {
+      return {
+        queued: 0,
+        running: 0,
+        needsInput: 0,
+        review: 0,
+        activeTaskTitle: null,
+        activeProgressNote: null
+      }
     }
   }
 }

@@ -140,6 +140,7 @@ function ProjectCard({
             : ''}
         </button>
       </div>
+      {status && <DelegationLine status={status} onOpen={onOpen} />}
       {project.tags.length > 0 && (
         <div className="card-tags">
           {project.tags.map((tag) => (
@@ -150,6 +151,40 @@ function ProjectCard({
         </div>
       )}
     </div>
+  )
+}
+
+function DelegationLine({
+  status,
+  onOpen
+}: {
+  status: ProjectStatusSummary
+  onOpen: (tab: ProjectTab) => void
+}): React.JSX.Element | null {
+  const { delegation } = status
+  const parts: string[] = []
+  if (delegation.running > 0) parts.push(`${delegation.running} running`)
+  if (delegation.queued > 0) parts.push(`${delegation.queued} queued`)
+  if (delegation.needsInput > 0) parts.push(`${delegation.needsInput} needs input`)
+  if (delegation.review > 0) parts.push(`${delegation.review} in review`)
+  if (parts.length === 0) return null
+  return (
+    <button
+      className={`delegation-line linkish ${delegation.needsInput > 0 ? 'attention' : ''}`}
+      title="Delegated tasks"
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen('tasks')
+      }}
+    >
+      <span>⚑ {parts.join(' · ')}</span>
+      {delegation.activeTaskTitle && (
+        <span className="delegation-progress muted">
+          {delegation.activeTaskTitle}
+          {delegation.activeProgressNote ? `: ${delegation.activeProgressNote}` : ''}
+        </span>
+      )}
+    </button>
   )
 }
 

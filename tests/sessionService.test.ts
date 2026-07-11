@@ -162,6 +162,29 @@ describe('SessionService', () => {
     expect(service.listSessions(projectId)[0].state).toBe('running')
   })
 
+  it('handles parallel permission prompts without dropping any of them', async () => {
+    // Real CLI turns can request several tools at once; each must resolve independently.
+    service.startSession(projectId, 'parallel reads', 'plan')
+    const canUseTool = queryMock.mock.calls[0][0].options.canUseTool
+    const first = canUseTool('Read', { file_path: 'a.ts' })
+    const second = canUseTool('Read', { file_path: 'b.ts' })
+    await settle()
+
+    const [session] = service.listSessions(projectId)
+    expect(session.state).toBe('permission-prompt')
+
+    service.respondToPermission(projectId, session.id, true)
+    await expect(first).resolves.toMatchObject({ behavior: 'allow' })
+    await settle()
+    // One prompt is still open, so the session keeps asking.
+    expect(service.listSessions(projectId)[0].state).toBe('permission-prompt')
+
+    service.respondToPermission(projectId, session.id, false)
+    await expect(second).resolves.toMatchObject({ behavior: 'deny' })
+    await settle()
+    expect(service.listSessions(projectId)[0].state).toBe('running')
+  })
+
   it('persists curation across instances without touching session files', () => {
     writeStoredSession('old-session', 60)
     service.curateSession(projectId, 'old-session', { pinned: true, title: 'Login bug hunt' })
@@ -172,6 +195,68 @@ describe('SessionService', () => {
     expect(session).toMatchObject({ pinned: true, title: 'Login bug hunt', archived: true })
     // underlying jsonl still parses fine
     expect(session.messageCount).toBe(1)
+  })
+
+  it('tags owned sessions with their task and reports turns to the observer', async () => {
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    const summary = service.startOwnedSession(
+      projectId,
+      'the briefing',
+      'acceptEdits',
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
+      observer
+    )
+    expect(summary).toMatchObject({ taskId: 't1', taskTitle: 'Add login', mode: 'acceptEdits' })
+
+    currentQuery.emit({
+      type: 'assistant',
+      session_id: 'sdk-9',
+      message: { content: [{ type: 'text', text: 'Working on it.' }] }
+    })
+    currentQuery.emit({ type: 'result', session_id: 'sdk-9' })
+    await settle()
+
+    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Working on it.')
+    expect(observer.stateChanged).toHaveBeenCalledWith(summary.id, 'awaiting-input')
+    expect(service.listSessions(projectId)[0]).toMatchObject({ taskId: 't1', taskTitle: 'Add login' })
+    expect(service.sdkSessionIdFor(summary.id)).toBe('sdk-9')
+    expect(service.isSessionAlive(summary.id)).toBe(true)
+
+    service.sendToSession(summary.id, 'corrective nudge')
+    expect(service.listSessions(projectId)[0].state).toBe('running')
+
+    currentQuery.end()
+    await settle()
+    expect(observer.closed).toHaveBeenCalledWith(summary.id, null)
+    expect(service.isSessionAlive(summary.id)).toBe(false)
+  })
+
+  it('resumes an owned session by SDK session id', () => {
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    service.startOwnedSession(
+      projectId,
+      'continue where you left off',
+      'acceptEdits',
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r2' },
+      observer,
+      'sdk-prev'
+    )
+    expect(queryMock.mock.calls[0][0].options.resume).toBe('sdk-prev')
+  })
+
+  it('leaves manually started sessions unattributed', () => {
+    const summary = service.startSession(projectId, 'manual work', 'plan')
+    expect(summary.taskId).toBeNull()
+    expect(summary.taskTitle).toBeNull()
+  })
+
+  it('attributes discovered sessions through the attribution lookup', () => {
+    writeStoredSession('old-session', 60)
+    service.setAttributionLookup((sdkSessionId) =>
+      sdkSessionId === 'old-session' ? { taskId: 't7', taskTitle: 'Old task', runId: 'r7' } : null
+    )
+    const [session] = service.listSessions(projectId)
+    expect(session).toMatchObject({ taskId: 't7', taskTitle: 'Old task' })
   })
 
   it('pins sessions to the top of the list', () => {

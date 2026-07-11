@@ -32,6 +32,25 @@ export interface SessionEventSink {
   transcriptAppended(projectId: string, sessionId: string, items: TranscriptItem[]): void
 }
 
+/** Identifies the task/run that started a session through the run loop. */
+export interface SessionOwner {
+  taskId: string
+  taskTitle: string
+  runId: string
+}
+
+/** Hooks the run orchestrator uses to supervise an owned session. */
+export interface RunSessionObserver {
+  /** The agent's turn ended (SDK result message); text is the turn's assistant output. */
+  turnCompleted(sessionId: string, assistantText: string): void
+  stateChanged(sessionId: string, state: SessionState): void
+  /** The SDK stream ended; error is null on a clean end. */
+  closed(sessionId: string, error: string | null): void
+}
+
+/** Injectable factory matching the SDK's query(); replaced by the E2E fake agent seam. */
+export type QueryFn = typeof query
+
 /** A live session driven through the Claude Agent SDK (D3 managed sessions). */
 class ManagedSession {
   readonly items: TranscriptItem[] = []
@@ -41,40 +60,49 @@ class ManagedSession {
   lastActivityAt = new Date().toISOString()
   /** Session ID reported by the CLI; keys this session in listings. */
   sdkSessionId: string | null = null
+  /** Set when the session was started by the run loop for a task. */
+  owner: SessionOwner | null = null
+  observer: RunSessionObserver | null = null
   private queryHandle: Query | null = null
   private pendingMessages: SDKUserMessage[] = []
   private wakeInput: (() => void) | null = null
-  private pendingPermission: { resolve: (allow: boolean) => void; toolName: string } | null = null
+  /** FIFO of unanswered permission prompts; the CLI can request several tools in parallel. */
+  private pendingPermissions: Array<{ resolve: (allow: boolean) => void; toolName: string }> = []
   private closed = false
+  /** Assistant text accumulated within the current turn, for the observer. */
+  private turnText: string[] = []
+  private lastNotifiedState: SessionState | null = null
+  private streamError: string | null = null
 
   constructor(
     readonly projectId: string,
     readonly localId: string,
     private readonly cwd: string,
     mode: SessionPermissionMode,
-    private readonly onChange: (session: ManagedSession, newItems: TranscriptItem[]) => void
+    private readonly onChange: (session: ManagedSession, newItems: TranscriptItem[]) => void,
+    private readonly queryFn: QueryFn
   ) {
     this.mode = mode
   }
 
   start(initialPrompt: string, resumeSessionId?: string): void {
     this.pushUserMessage(initialPrompt)
-    this.queryHandle = query({
+    this.queryHandle = this.queryFn({
       prompt: this.inputStream(),
       options: {
         cwd: this.cwd,
         permissionMode: MODE_TO_SDK[this.mode],
         resume: resumeSessionId,
         canUseTool: async (toolName, input) => {
-          this.state = 'permission-prompt'
-          this.touch([
-            { kind: 'system', text: `Permission requested: ${toolName}`, at: new Date().toISOString() }
-          ])
           const allow = await new Promise<boolean>((resolve) => {
-            this.pendingPermission = { resolve, toolName }
+            this.pendingPermissions.push({ resolve, toolName })
+            this.state = 'permission-prompt'
+            this.touch([
+              { kind: 'system', text: `Permission requested: ${toolName}`, at: new Date().toISOString() }
+            ])
           })
-          this.pendingPermission = null
-          this.state = 'running'
+          // Parallel tool calls prompt concurrently; stay prompting until all are answered.
+          if (this.pendingPermissions.length === 0) this.state = 'running'
           this.touch([])
           return allow
             ? { behavior: 'allow', updatedInput: input }
@@ -89,6 +117,7 @@ class ManagedSession {
     if (this.closed) throw new Error('Session has ended')
     this.pushUserMessage(message)
     this.state = 'running'
+    this.turnText = []
     this.touch([{ kind: 'user', text: message, at: new Date().toISOString() }])
   }
 
@@ -96,16 +125,20 @@ class ManagedSession {
     if (!this.queryHandle) throw new Error('Session not started')
     await this.queryHandle.setPermissionMode(MODE_TO_SDK[mode])
     this.mode = mode
-    // Switching to a more permissive mode implicitly answers a pending prompt.
-    if (this.pendingPermission && (mode === 'acceptEdits' || mode === 'auto')) {
-      this.pendingPermission.resolve(true)
+    // Switching to a more permissive mode implicitly answers pending prompts.
+    if (mode === 'acceptEdits' || mode === 'auto') {
+      while (this.pendingPermissions.length > 0) {
+        this.pendingPermissions.shift()!.resolve(true)
+      }
     }
     this.touch([])
   }
 
+  /** Answer the oldest pending permission prompt. */
   respondToPermission(allow: boolean): void {
-    if (!this.pendingPermission) throw new Error('No pending permission prompt')
-    this.pendingPermission.resolve(allow)
+    const pending = this.pendingPermissions.shift()
+    if (!pending) throw new Error('No pending permission prompt')
+    pending.resolve(allow)
   }
 
   async interrupt(): Promise<void> {
@@ -115,7 +148,11 @@ class ManagedSession {
   }
 
   get hasPendingPermission(): boolean {
-    return this.pendingPermission !== null
+    return this.pendingPermissions.length > 0
+  }
+
+  get pendingPermissionToolName(): string | null {
+    return this.pendingPermissions[0]?.toolName ?? null
   }
 
   get isClosed(): boolean {
@@ -150,18 +187,16 @@ class ManagedSession {
         this.handleSdkMessage(message)
       }
     } catch (err) {
+      this.streamError = err instanceof Error ? err.message : String(err)
       this.touch([
-        {
-          kind: 'system',
-          text: `Session error: ${err instanceof Error ? err.message : String(err)}`,
-          at: new Date().toISOString()
-        }
+        { kind: 'system', text: `Session error: ${this.streamError}`, at: new Date().toISOString() }
       ])
     } finally {
       this.closed = true
       this.state = 'idle'
       this.wakeInput?.()
       this.touch([])
+      this.observer?.closed(this.localId, this.streamError)
     }
   }
 
@@ -170,10 +205,12 @@ class ManagedSession {
     const at = new Date().toISOString()
     const newItems: TranscriptItem[] = []
 
+    let turnEnded = false
     if (message.type === 'assistant') {
       for (const part of message.message.content) {
         if (part.type === 'text' && part.text.trim()) {
           newItems.push({ kind: 'assistant', text: part.text, at })
+          this.turnText.push(part.text)
         } else if (part.type === 'tool_use') {
           newItems.push({
             kind: 'tool',
@@ -186,14 +223,24 @@ class ManagedSession {
       }
     } else if (message.type === 'result') {
       this.state = 'awaiting-input'
+      turnEnded = true
     }
     this.touch(newItems)
+    if (turnEnded) {
+      const assistantText = this.turnText.join('\n\n')
+      this.turnText = []
+      this.observer?.turnCompleted(this.localId, assistantText)
+    }
   }
 
   private touch(newItems: TranscriptItem[]): void {
     this.lastActivityAt = new Date().toISOString()
     this.items.push(...newItems)
     this.onChange(this, newItems)
+    if (this.state !== this.lastNotifiedState) {
+      this.lastNotifiedState = this.state
+      this.observer?.stateChanged(this.localId, this.state)
+    }
   }
 }
 
@@ -205,15 +252,22 @@ export class SessionService {
   private readonly curationPath: string
   private curation: Record<string, CurationRecord> = {}
   private readonly managed = new Map<string, ManagedSession>()
+  /** Resolves task attribution for discovered sessions, wired to the run orchestrator. */
+  private attributionLookup: (sdkSessionId: string) => SessionOwner | null = () => null
 
   constructor(
     private readonly storage: SessionStorage,
     private readonly projects: ProjectStore,
     userDataDir: string,
-    private readonly sink: SessionEventSink
+    private readonly sink: SessionEventSink,
+    private readonly queryFn: QueryFn = query
   ) {
     this.curationPath = join(userDataDir, 'sessions-meta.json')
     this.loadCuration()
+  }
+
+  setAttributionLookup(lookup: (sdkSessionId: string) => SessionOwner | null): void {
+    this.attributionLookup = lookup
   }
 
   listSessions(projectId: string): SessionSummary[] {
@@ -269,6 +323,50 @@ export class SessionService {
     const session = this.createManaged(projectId, project.path, mode)
     session.start(prompt)
     return this.managedSummary(session)
+  }
+
+  /**
+   * Start a session on behalf of the run loop: tagged with its owning task and
+   * observed for turn completions, state changes, and stream end.
+   */
+  startOwnedSession(
+    projectId: string,
+    prompt: string,
+    mode: SessionPermissionMode,
+    owner: SessionOwner,
+    observer: RunSessionObserver,
+    resumeSessionId?: string
+  ): SessionSummary {
+    const project = this.projects.getOrThrow(projectId)
+    const session = this.createManaged(projectId, project.path, mode)
+    session.owner = owner
+    session.observer = observer
+    session.start(prompt, resumeSessionId)
+    return this.managedSummary(session)
+  }
+
+  /** Programmatic follow-up from the run loop; only live managed sessions qualify. */
+  sendToSession(sessionId: string, message: string): void {
+    this.requireManaged(sessionId).send(message)
+  }
+
+  isSessionAlive(sessionId: string): boolean {
+    const session = this.managed.get(sessionId)
+    return session !== undefined && !session.isClosed
+  }
+
+  /** Live managed sessions across all projects; used by the attention inbox. */
+  listManagedSessions(): SessionSummary[] {
+    return [...this.managed.values()].filter((s) => !s.isClosed).map((s) => this.managedSummary(s))
+  }
+
+  /** Tool name of a live session's pending permission prompt, when one exists. */
+  pendingPermissionTool(sessionId: string): string | null {
+    return this.managed.get(sessionId)?.pendingPermissionToolName ?? null
+  }
+
+  sdkSessionIdFor(sessionId: string): string | null {
+    return this.managed.get(sessionId)?.sdkSessionId ?? null
   }
 
   respondToSession(projectId: string, sessionId: string, message: string): void {
@@ -333,10 +431,17 @@ export class SessionService {
 
   private createManaged(projectId: string, cwd: string, mode: SessionPermissionMode): ManagedSession {
     const localId = `managed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const session = new ManagedSession(projectId, localId, cwd, mode, (s, newItems) => {
-      if (newItems.length > 0) this.sink.transcriptAppended(s.projectId, s.localId, newItems)
-      this.sink.sessionUpdated(this.managedSummary(s))
-    })
+    const session = new ManagedSession(
+      projectId,
+      localId,
+      cwd,
+      mode,
+      (s, newItems) => {
+        if (newItems.length > 0) this.sink.transcriptAppended(s.projectId, s.localId, newItems)
+        this.sink.sessionUpdated(this.managedSummary(s))
+      },
+      this.queryFn
+    )
     this.managed.set(localId, session)
     return session
   }
@@ -357,7 +462,9 @@ export class SessionService {
       mode: session.mode,
       pinned: curation.pinned ?? false,
       archived: curation.archived ?? false,
-      messageCount: session.items.filter((i) => i.kind === 'user' || i.kind === 'assistant').length
+      messageCount: session.items.filter((i) => i.kind === 'user' || i.kind === 'assistant').length,
+      taskId: session.owner?.taskId ?? null,
+      taskTitle: session.owner?.taskTitle ?? null
     }
   }
 
@@ -371,6 +478,8 @@ export class SessionService {
     modifiedAt: Date
   ): SessionSummary {
     const curation = this.curation[sessionId] ?? {}
+    // Sessions the run loop started in an earlier app run stay attributed after restarts.
+    const owner = this.attributionLookup(sessionId)
     return {
       id: sessionId,
       projectId,
@@ -384,7 +493,9 @@ export class SessionService {
       mode: null,
       pinned: curation.pinned ?? false,
       archived: curation.archived ?? false,
-      messageCount
+      messageCount,
+      taskId: owner?.taskId ?? null,
+      taskTitle: owner?.taskTitle ?? null
     }
   }
 

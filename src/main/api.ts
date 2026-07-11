@@ -2,16 +2,21 @@ import type {
   AddProjectInput,
   ProjectPatch,
   SessionCurationPatch,
-  SessionPermissionMode
+  SessionPermissionMode,
+  TaskInput,
+  TaskPatch
 } from '@shared/domain'
 import type { TrackerApi } from '@shared/ipc'
 import type { AnalyticsService } from './services/AnalyticsService'
 import type { GithubClient } from './services/GithubClient'
 import type { GitService } from './services/GitService'
+import type { InboxService } from './services/InboxService'
 import type { PipelineService } from './services/PipelineService'
 import type { ProjectService } from './services/ProjectService'
 import type { ProjectStore } from './services/ProjectStore'
+import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
+import type { TaskService } from './services/TaskService'
 import type { TokenStore } from './services/TokenStore'
 
 export interface ApiDeps {
@@ -19,6 +24,9 @@ export interface ApiDeps {
   projects: ProjectService
   git: GitService
   sessions: SessionService
+  tasks: TaskService
+  orchestrator: RunOrchestrator
+  inbox: InboxService
   pipelines: PipelineService
   analytics: AnalyticsService
   github: GithubClient
@@ -87,6 +95,31 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
       deps.sessions.interruptSession(projectId, sessionId),
     curateSession: async (projectId: string, sessionId: string, patch: SessionCurationPatch) =>
       deps.sessions.curateSession(projectId, sessionId, patch),
+
+    // Task backlog
+    listTasks: async (projectId: string) => deps.tasks.listTasks(projectId),
+    createTask: async (projectId: string, input: TaskInput) => deps.tasks.create(projectId, input),
+    updateTask: async (_projectId: string, taskId: string, patch: TaskPatch) =>
+      deps.tasks.update(taskId, patch),
+    deleteTask: async (_projectId: string, taskId: string) => deps.tasks.delete(taskId),
+    reorderTask: async (projectId: string, taskId: string, beforeTaskId: string | null) => {
+      deps.tasks.reorder(taskId, beforeTaskId)
+      return deps.tasks.listTasks(projectId)
+    },
+
+    // Agent run loop
+    delegateTask: async (_projectId: string, taskId: string) => deps.orchestrator.delegate(taskId),
+    getTaskRun: async (_projectId: string, taskId: string) => deps.orchestrator.latestRun(taskId),
+    answerRun: async (_projectId: string, taskId: string, answer: string) =>
+      deps.orchestrator.answer(taskId, answer),
+    stopRun: async (_projectId: string, taskId: string) => deps.orchestrator.stop(taskId),
+    resumeRun: async (_projectId: string, taskId: string) => deps.orchestrator.resume(taskId),
+    acceptTask: async (_projectId: string, taskId: string) => deps.orchestrator.accept(taskId),
+    sendBackTask: async (_projectId: string, taskId: string, feedback: string) =>
+      deps.orchestrator.sendBack(taskId, feedback),
+
+    // Attention inbox
+    listInbox: async () => deps.inbox.list(),
 
     // Pipelines
     getPipelineRuns: async (projectId: string) => deps.pipelines.getRuns(projectId),

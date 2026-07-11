@@ -6,6 +6,7 @@ import type {
   AddProjectInput,
   DirectoryInspection,
   GithubAuthState,
+  InboxItem,
   PipelineStatusSummary,
   Project,
   ProjectPatch,
@@ -14,9 +15,13 @@ import type {
   RefDiff,
   ReleaseInfo,
   RepoRefs,
+  RunRecord,
   SessionCurationPatch,
   SessionPermissionMode,
   SessionSummary,
+  TaskDefinition,
+  TaskInput,
+  TaskPatch,
   TrafficMetrics,
   TranscriptItem,
   WorkflowRun,
@@ -51,6 +56,32 @@ export interface TrackerApi {
   interruptSession(projectId: string, sessionId: string): Promise<void>
   curateSession(projectId: string, sessionId: string, patch: SessionCurationPatch): Promise<void>
 
+  // Task backlog
+  listTasks(projectId: string): Promise<TaskDefinition[]>
+  createTask(projectId: string, input: TaskInput): Promise<TaskDefinition>
+  updateTask(projectId: string, taskId: string, patch: TaskPatch): Promise<TaskDefinition>
+  deleteTask(projectId: string, taskId: string): Promise<void>
+  /** Move a task directly before another queued task, or to the end when beforeTaskId is null. */
+  reorderTask(projectId: string, taskId: string, beforeTaskId: string | null): Promise<TaskDefinition[]>
+
+  // Agent run loop
+  delegateTask(projectId: string, taskId: string): Promise<TaskDefinition>
+  /** Latest run for the task; null when it has never been delegated. */
+  getTaskRun(projectId: string, taskId: string): Promise<RunRecord | null>
+  /** Deliver the user's answer to an escalated run and resume it. */
+  answerRun(projectId: string, taskId: string, answer: string): Promise<void>
+  /** Interrupt an active run and move the task to failed. */
+  stopRun(projectId: string, taskId: string): Promise<void>
+  /** Reattach an interrupted run to its session and continue. */
+  resumeRun(projectId: string, taskId: string): Promise<void>
+  /** Accept a reviewed task as done. */
+  acceptTask(projectId: string, taskId: string): Promise<void>
+  /** Re-queue a reviewed task with feedback for the next briefing. */
+  sendBackTask(projectId: string, taskId: string, feedback: string): Promise<void>
+
+  // Attention inbox
+  listInbox(): Promise<InboxItem[]>
+
   // Pipelines
   getPipelineRuns(projectId: string): Promise<WorkflowRun[]>
   getRateLimit(): Promise<RateLimitState>
@@ -76,8 +107,14 @@ export interface TrackerEvents {
   'transcript-appended': { projectId: string; sessionId: string; items: TranscriptItem[] }
   'pipeline-updated': { projectId: string; summary: PipelineStatusSummary; runs: WorkflowRun[] }
   'rate-limit-changed': RateLimitState
+  'tasks-changed': { projectId: string; tasks: TaskDefinition[] }
+  'run-updated': RunRecord
+  'inbox-changed': InboxItem[]
   /** Emitted when the user clicks a desktop notification; the UI should navigate. */
-  navigate: { projectId: string; view: 'dashboard' | 'diffs' | 'sessions' | 'pipelines' | 'analytics' }
+  navigate: {
+    projectId: string
+    view: 'dashboard' | 'diffs' | 'sessions' | 'pipelines' | 'analytics' | 'tasks'
+  }
 }
 
 export type TrackerEventName = keyof TrackerEvents

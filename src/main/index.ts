@@ -4,13 +4,17 @@ import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
 import { AnalyticsService, GithubMetricsProvider } from './services/AnalyticsService'
+import { createFakeAgentQuery } from './services/FakeAgentQuery'
 import { GithubClient } from './services/GithubClient'
 import { GitService } from './services/GitService'
+import { InboxService } from './services/InboxService'
 import { PipelineService } from './services/PipelineService'
 import { ProjectService } from './services/ProjectService'
 import { ProjectStore } from './services/ProjectStore'
+import { RunOrchestrator } from './services/RunOrchestrator'
 import { SessionService } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
+import { TaskService } from './services/TaskService'
 import { TokenStore } from './services/TokenStore'
 import { Watchers } from './services/Watchers'
 
@@ -53,11 +57,51 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   // APT_CLAUDE_HOME is a test seam; undefined falls back to ~/.claude
   const storage = new SessionStorage(process.env.APT_CLAUDE_HOME)
 
-  const sessions = new SessionService(storage, store, userDataDir, {
-    sessionUpdated: (summary) => emitTrackerEvent('session-updated', summary),
-    transcriptAppended: (projectId, sessionId, items) =>
-      emitTrackerEvent('transcript-appended', { projectId, sessionId, items })
+  // Declared before the session sink so its closure can recompute the inbox.
+  let inbox: InboxService | null = null
+  const pushInbox = (): void => {
+    if (inbox) emitTrackerEvent('inbox-changed', inbox.list())
+  }
+
+  const sessions = new SessionService(
+    storage,
+    store,
+    userDataDir,
+    {
+      sessionUpdated: (summary) => {
+        emitTrackerEvent('session-updated', summary)
+        // Permission prompts on run sessions surface as inbox items.
+        if (summary.taskId) pushInbox()
+      },
+      transcriptAppended: (projectId, sessionId, items) =>
+        emitTrackerEvent('transcript-appended', { projectId, sessionId, items })
+    },
+    // APT_FAKE_AGENT_SCRIPT is a test seam: a scripted agent instead of the real SDK.
+    process.env.APT_FAKE_AGENT_SCRIPT ? createFakeAgentQuery(process.env.APT_FAKE_AGENT_SCRIPT) : undefined
+  )
+
+  const tasks = new TaskService(userDataDir, {
+    tasksChanged: (projectId, projectTasks) => {
+      emitTrackerEvent('tasks-changed', { projectId, tasks: projectTasks })
+      void pushProjectStatus(projectId)
+      pushInbox()
+    }
   })
+
+  const orchestrator = new RunOrchestrator(
+    userDataDir,
+    tasks,
+    sessions,
+    {
+      runUpdated: (run) => {
+        emitTrackerEvent('run-updated', run)
+        pushInbox()
+      }
+    },
+    { claudeHome: process.env.APT_CLAUDE_HOME }
+  )
+  sessions.setAttributionLookup((sdkSessionId) => orchestrator.attributionFor(sdkSessionId))
+  inbox = new InboxService({ projects: store, tasks, runs: orchestrator, sessions })
 
   const tokens = new TokenStore(userDataDir, {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -75,7 +119,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   })
 
   const analytics = new AnalyticsService(new GithubMetricsProvider(github))
-  const projects = new ProjectService(store, git, sessions, pipelines)
+  const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
 
   const watchers = new Watchers(storage, {
     repoChanged: (projectId) => {
@@ -95,6 +139,9 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     projects,
     git,
     sessions,
+    tasks,
+    orchestrator,
+    inbox,
     pipelines,
     analytics,
     github,
@@ -112,6 +159,9 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     }
   })
   registerTrackerApi(api)
+
+  // Reconcile persisted runs (active -> interrupted) and start queued tasks.
+  orchestrator.restore()
 
   async function pushProjectStatus(projectId: string): Promise<void> {
     try {

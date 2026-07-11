@@ -75,9 +75,25 @@ test.beforeAll(async () => {
     ].join('\n')
   )
 
+  writeFileSync(
+    join(userData, 'fake-agent-script.json'),
+    JSON.stringify({
+      turns: [
+        'I need direction before I pick a database.\n```apt-status\n{ "state": "question", "note": "Should sessions persist in SQLite or plain JSON files?" }\n```',
+        'Done and verified.\n```apt-status\n{ "state": "complete", "note": "Added JSON-file session persistence with tests", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests" }\n```'
+      ]
+    })
+  )
+
   app = await electron.launch({
     args: ['.'],
-    env: { ...process.env, APT_USER_DATA_DIR: userData, APT_CLAUDE_HOME: claudeHome, APT_TEST_PICK_DIR: repo }
+    env: {
+      ...process.env,
+      APT_USER_DATA_DIR: userData,
+      APT_CLAUDE_HOME: claudeHome,
+      APT_TEST_PICK_DIR: repo,
+      APT_FAKE_AGENT_SCRIPT: join(userData, 'fake-agent-script.json')
+    }
   })
   page = await app.firstWindow()
 })
@@ -117,4 +133,38 @@ test('captures all main views in both themes', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
   await expect(page.getByText(/Status: not configured/)).toBeVisible()
   await shoot('settings')
+})
+
+test('captures the delegation views in both themes', async () => {
+  await page.locator('.sidebar').getByRole('button', { name: 'Greeting Service' }).click()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Persist sessions')
+  await page
+    .getByPlaceholder(/What should the agent build/)
+    .fill('Persist session state so the service survives restarts')
+  await page.getByPlaceholder(/Acceptance criteria/).fill('state survives a restart\ncovered by tests')
+  await shoot('task-dialog')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await shoot('tasks-draft')
+
+  // The scripted agent asks a question, staging the escalation UI.
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.getByRole('heading', { name: 'The agent needs you' })).toBeVisible()
+  await shoot('tasks-escalation')
+
+  await page.getByRole('button', { name: /Inbox/ }).click()
+  await expect(page.locator('.inbox-card').first()).toBeVisible()
+  await shoot('inbox')
+
+  // Answering resumes the run; the second scripted turn completes into review.
+  await page.getByPlaceholder('Answer the agent…').fill('Plain JSON files, like the rest of the app')
+  await page.locator('.inbox-card').getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.locator('.inbox-card .badge.inbox-review')).toBeVisible()
+  await page.locator('.inbox-card').getByRole('button', { name: 'Open task' }).click()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  await shoot('tasks-review')
+
+  await page.getByRole('button', { name: '⌂ Dashboard' }).click()
+  await expect(page.getByText(/⚑ 1 in review/)).toBeVisible()
+  await shoot('dashboard-delegation')
 })

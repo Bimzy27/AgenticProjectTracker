@@ -15,9 +15,17 @@ const STATE_LABEL: Record<SessionSummary['state'], string> = {
   'permission-prompt': 'permission needed'
 }
 
-export function SessionsTab({ project }: { project: Project }): React.JSX.Element {
+interface SessionsTabProps {
+  project: Project
+  /** Pre-select a session, e.g. when navigating from a task's run or the inbox. */
+  initialSelectedId?: string | null
+  /** Navigate to the task that owns a loop-started session. */
+  onOpenTask: (taskId: string) => void
+}
+
+export function SessionsTab({ project, initialSelectedId, onOpenTask }: SessionsTabProps): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
   const [showArchived, setShowArchived] = useState(false)
   const [starting, setStarting] = useState(false)
 
@@ -79,7 +87,7 @@ export function SessionsTab({ project }: { project: Project }): React.JSX.Elemen
       </aside>
       <section className="session-detail">
         {selected ? (
-          <SessionDetail project={project} session={selected} />
+          <SessionDetail project={project} session={selected} onOpenTask={onOpenTask} />
         ) : (
           <div className="empty-state">Select a session to view its transcript.</div>
         )}
@@ -119,6 +127,11 @@ function SessionRow({
         <span className={`badge session-${session.state} ${needsAttention ? 'attention' : ''}`}>
           {STATE_LABEL[session.state]}
         </span>
+        {session.taskTitle && (
+          <span className="badge task-attribution" title={`Started for task: ${session.taskTitle}`}>
+            ⚑ {session.taskTitle}
+          </span>
+        )}
         {session.origin === 'managed' && session.mode && <span className="badge">{session.mode}</span>}
         {session.liveExternal && <span className="badge live-external">live in terminal</span>}
         <span>{formatRelativeTime(session.lastActivityAt)}</span>
@@ -130,10 +143,12 @@ function SessionRow({
 
 function SessionDetail({
   project,
-  session
+  session,
+  onOpenTask
 }: {
   project: Project
   session: SessionSummary
+  onOpenTask: (taskId: string) => void
 }): React.JSX.Element {
   const [items, setItems] = useState<TranscriptItem[] | null>(null)
   const [message, setMessage] = useState('')
@@ -209,6 +224,11 @@ function SessionDetail({
           ))}
         </div>
         <div className="session-actions">
+          {session.taskId && (
+            <button onClick={() => onOpenTask(session.taskId!)} title="Open the task that owns this run">
+              ⚑ View task
+            </button>
+          )}
           {canControl && session.state === 'running' && (
             <button onClick={() => act(() => tracker.invoke('interruptSession', project.id, session.id))}>
               ⏸ Interrupt

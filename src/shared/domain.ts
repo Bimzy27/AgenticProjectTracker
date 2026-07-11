@@ -52,6 +52,19 @@ export interface ProjectStatusSummary {
   sessionCount: number
   sessionsNeedingAttention: number
   pipeline: PipelineStatusSummary | null
+  delegation: DelegationSummary
+}
+
+/** Per-project rollup of the task backlog and active run, shown on dashboard cards. */
+export interface DelegationSummary {
+  queued: number
+  running: number
+  needsInput: number
+  review: number
+  /** Title of the currently running task, when one exists. */
+  activeTaskTitle: string | null
+  /** Latest progress note reported by the active run. */
+  activeProgressNote: string | null
 }
 
 // ---------- Git diffs ----------
@@ -130,6 +143,9 @@ export interface SessionSummary {
   pinned: boolean
   archived: boolean
   messageCount: number
+  /** Set when the session was started by the agent run loop for a task. */
+  taskId: string | null
+  taskTitle: string | null
 }
 
 export type TranscriptItem =
@@ -142,6 +158,149 @@ export interface SessionCurationPatch {
   pinned?: boolean
   title?: string | null
   archived?: boolean
+}
+
+// ---------- Task backlog ----------
+
+export type TaskState = 'draft' | 'queued' | 'running' | 'needs-input' | 'review' | 'done' | 'failed'
+
+export interface TaskTransition {
+  state: TaskState
+  at: string
+}
+
+export interface TaskDefinition {
+  id: string
+  projectId: string
+  title: string
+  /** What the agent should build; the core of the run briefing. */
+  purpose: string
+  acceptanceCriteria: string[]
+  state: TaskState
+  /** Backlog position within the project; lower starts first. */
+  order: number
+  /** Permission mode for the run session; delegated work defaults to acceptEdits. */
+  mode: SessionPermissionMode
+  /** Maximum agent turns before the run is interrupted and escalated. */
+  stepBudget: number
+  /** Maximum corrective follow-ups before a failing run escalates. */
+  recoveryBudget: number
+  /** Feedback from the last send-back review, included in the next briefing. */
+  reviewFeedback: string | null
+  createdAt: string
+  updatedAt: string
+  transitions: TaskTransition[]
+}
+
+export interface TaskInput {
+  title: string
+  purpose: string
+  acceptanceCriteria: string[]
+  mode?: SessionPermissionMode
+  stepBudget?: number
+  recoveryBudget?: number
+}
+
+export interface TaskPatch {
+  title?: string
+  purpose?: string
+  acceptanceCriteria?: string[]
+  mode?: SessionPermissionMode
+  stepBudget?: number
+  recoveryBudget?: number
+}
+
+// ---------- Agent run loop ----------
+
+/** Parsed from the agent's fenced apt-status block; never inferred from prose. */
+export interface RunStatusReport {
+  state: 'working' | 'question' | 'blocked' | 'complete'
+  /** Progress note, question text, blocked reason, or completion summary. */
+  note: string
+  /** For complete reports: whether the agent says the quality gate passed. */
+  gatePassed: boolean | null
+  /** For complete reports: how the gate result was obtained (e.g. patrol output). */
+  gateSummary: string | null
+}
+
+export type RunState = 'active' | 'needs-input' | 'review' | 'done' | 'failed' | 'interrupted'
+
+export type RunEscalationKind = 'question' | 'recovery-exhausted' | 'step-budget' | 'interrupted'
+
+export interface RunEscalation {
+  kind: RunEscalationKind
+  message: string
+  /** Accumulated failure context from earlier recovery attempts. */
+  history: string[]
+  at: string
+}
+
+export interface RunCompletion {
+  summary: string
+  gatePassed: boolean
+  gateSummary: string | null
+  at: string
+}
+
+export interface RunEvent {
+  kind:
+    | 'started'
+    | 'status'
+    | 'nudge'
+    | 'escalated'
+    | 'answered'
+    | 'completed'
+    | 'accepted'
+    | 'sent-back'
+    | 'stopped'
+    | 'interrupted'
+    | 'resumed'
+  detail: string
+  at: string
+}
+
+export interface RunRecord {
+  id: string
+  taskId: string
+  projectId: string
+  /** Local id of the managed session currently driving this run. */
+  sessionId: string
+  /** CLI session id; enables resume after an app restart. */
+  sdkSessionId: string | null
+  state: RunState
+  /** Latest progress note from the agent's status reports. */
+  progressNote: string | null
+  /** Pending escalation while the run is in needs-input or interrupted. */
+  escalation: RunEscalation | null
+  nudgesUsed: number
+  stepsUsed: number
+  completion: RunCompletion | null
+  /** False when the workspace quality-gate skills were missing at delegation. */
+  workflowVerified: boolean
+  events: RunEvent[]
+  startedAt: string
+  endedAt: string | null
+}
+
+// ---------- Attention inbox ----------
+
+export type InboxItemKind =
+  'question' | 'permission' | 'recovery-exhausted' | 'step-budget' | 'review' | 'interrupted'
+
+/** A derived escalation entry; computed from live task/run/session state, never stored. */
+export interface InboxItem {
+  /** Stable id derived from the underlying object, e.g. `run:<id>` or `permission:<sessionId>`. */
+  id: string
+  kind: InboxItemKind
+  projectId: string
+  projectName: string
+  taskId: string | null
+  taskTitle: string | null
+  runId: string | null
+  sessionId: string | null
+  /** Question text, failure history, or completion summary. */
+  message: string
+  at: string
 }
 
 // ---------- Pipelines ----------
