@@ -3,9 +3,7 @@
 ## Purpose
 
 Discover, view, and interact with Claude CLI agent sessions per tracked project: transcripts, responding to sessions awaiting input, permission-mode control, curation, and attention indicators.
-
 ## Requirements
-
 ### Requirement: Discover Claude CLI sessions per project
 
 The system SHALL discover Claude CLI sessions associated with each tracked project by reading Claude's local session storage.
@@ -94,3 +92,19 @@ The system SHALL indicate on the dashboard and in the sessions view when a sessi
 
 - **WHEN** a managed session requests permission for a tool use
 - **THEN** the project's dashboard entry and the session list show an attention indicator until the user responds
+
+### Requirement: Loop-started sessions are attributed to their task
+
+Sessions started by the agent run loop SHALL be attributed to their owning task in session listings, and the session view SHALL link back to the task and run that own the session.
+Attribution SHALL NOT change how the session itself behaves (transcript viewing, responding, permission control all work as for any managed session).
+
+#### Scenario: Run session in the sessions list
+
+- **WHEN** the user opens the Sessions tab for a project with an active delegated run
+- **THEN** the run's session appears in the list labeled with its task, and behaves like any other managed session
+
+#### Scenario: Navigating from session to task
+
+- **WHEN** the user views a session that belongs to a run
+- **THEN** the view offers navigation to the owning task and its run detail
+
