@@ -12,4 +12,5 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: Agentic Project Tracker
+  artifactName: AgenticProjectTracker-Setup-${version}.${ext}
 npmRebuild: false

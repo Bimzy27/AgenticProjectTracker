@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify tag matches package.json version
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = '${{ github.ref_name }}'
+          if ($tag -ne "v$version") {
+            Write-Error "Tag $tag does not match package.json version $version. Bump the version before tagging."
+            exit 1
+          }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run package
+      - name: Create GitHub release with the installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          generate_release_notes: true

@@ -1,14 +1,23 @@
 # Agentic Project Tracker
 
-A desktop mission control for multiple long running projects: git diffs, Claude agent sessions, CI/CD pipeline health, and release analytics in one place.
+A desktop mission control for multiple long running projects: delegate build tasks to Claude agents, supervise their runs, and keep git diffs, CI/CD pipeline health, and release analytics in one view.
 
 ## Features
 
-- **Dashboard**: every tracked project at a glance - branch, dirty state, agent sessions needing attention, pipeline status, filterable by category.
-- **Diff viewer**: working tree (staged/unstaged/untracked) and ref-to-ref diffs, grouped by directory, syntax highlighted, unified or side-by-side.
+- **Agent delegation**: give each project a backlog of tasks (purpose plus acceptance criteria) and delegate them to Claude agents.
+  A run loop supervises each agent session end to end: structured status reporting, bounded automatic recovery from failures, step and token budgets, and a review step where you accept the result or send it back with feedback.
+- **Attention inbox**: one cross-project queue for everything that needs you - agent questions, tool permission requests, exhausted retries, and completed runs awaiting review - all answerable in place.
+- **Dashboard**: every tracked project at a glance - branch, dirty state, delegated task states with live progress, agent sessions needing attention, pipeline status, filterable by category.
 - **Agent sessions**: discovers Claude CLI sessions per project, shows transcripts live, lets you respond to waiting sessions, and toggles permission modes (plan / accept edits / auto) on sessions managed by the app.
+- **Diff viewer**: working tree (staged/unstaged/untracked) and ref-to-ref diffs, grouped by directory, syntax highlighted, unified or side-by-side.
 - **Pipeline monitoring**: polls GitHub Actions with ETag conditional requests and raises desktop notifications on failures; click-through opens the run detail.
 - **Release analytics**: GitHub releases with per-asset download counts, plus repository traffic (views/clones) where the token allows.
+
+## Installation
+
+Download the latest `AgenticProjectTracker-Setup-<version>.exe` from the [Releases page](https://github.com/Bimzy27/AgenticProjectTracker/releases) and run it.
+The installer is unsigned, so Windows SmartScreen will warn on first run; choose "More info" then "Run anyway".
+Alternatively, build from source with `npm run package` (see Development below).
 
 ## Requirements
 
@@ -53,3 +62,16 @@ In Claude Code, start a new change with:
 ```
 /opsx:propose "your idea"
 ```
+
+## Releasing
+
+Releases are cut by pushing a version tag; `.github/workflows/release.yml` re-runs the quality checks, packages the installer, and publishes a GitHub release with generated notes.
+
+```bash
+# after bumping "version" in package.json and pushing main
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow refuses tags that do not match the `package.json` version.
+In Claude Code, the repo's `github-release` skill drives the whole flow including preflight and verification.
