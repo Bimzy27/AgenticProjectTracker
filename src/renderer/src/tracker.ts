@@ -26,6 +26,13 @@ export function formatRelativeTime(iso: string | null): string {
   return `${days}d ago`
 }
 
+/** Compact token counts: 950, 12.4k, 1.2M. */
+export function formatTokens(count: number): string {
+  if (count < 1000) return String(count)
+  if (count < 1_000_000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+}
+
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return '–'
   if (seconds < 60) return `${seconds}s`

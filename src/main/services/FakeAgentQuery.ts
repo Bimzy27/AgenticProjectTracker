@@ -37,7 +37,11 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
           session_id: sessionId,
           message: { content: [{ type: 'text', text }] }
         }
-        yield { type: 'result', session_id: sessionId }
+        yield {
+          type: 'result',
+          session_id: sessionId,
+          usage: { input_tokens: 100, output_tokens: 25 }
+        }
       }
     }
 

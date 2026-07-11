@@ -8,7 +8,7 @@ import type {
   TaskState
 } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
-import { formatRelativeTime, tracker, useTrackerEvent } from '../tracker'
+import { formatRelativeTime, formatTokens, tracker, useTrackerEvent } from '../tracker'
 
 const MODES: Array<{ id: SessionPermissionMode; label: string; hint: string }> = [
   { id: 'acceptEdits', label: 'Accept edits', hint: 'File edits are automatic; other tools ask first' },
@@ -382,6 +382,9 @@ function RunPanel({
           </span>
           <span>
             {run.nudgesUsed}/{task.recoveryBudget} recoveries
+          </span>
+          <span title={`${run.tokensUsed.toLocaleString()} tokens consumed by this run`}>
+            {formatTokens(run.tokensUsed)} tokens
           </span>
           {run.sessionId && (
             <button className="stat linkish" onClick={() => onOpenTranscript(run.sessionId)}>

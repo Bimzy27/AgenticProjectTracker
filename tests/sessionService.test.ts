@@ -213,10 +213,14 @@ describe('SessionService', () => {
       session_id: 'sdk-9',
       message: { content: [{ type: 'text', text: 'Working on it.' }] }
     })
-    currentQuery.emit({ type: 'result', session_id: 'sdk-9' })
+    currentQuery.emit({
+      type: 'result',
+      session_id: 'sdk-9',
+      usage: { input_tokens: 1200, output_tokens: 300, cache_read_input_tokens: 500 }
+    })
     await settle()
 
-    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Working on it.')
+    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Working on it.', 2000)
     expect(observer.stateChanged).toHaveBeenCalledWith(summary.id, 'awaiting-input')
     expect(service.listSessions(projectId)[0]).toMatchObject({ taskId: 't1', taskTitle: 'Add login' })
     expect(service.sdkSessionIdFor(summary.id)).toBe('sdk-9')

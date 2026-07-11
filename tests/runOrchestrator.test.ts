@@ -77,8 +77,8 @@ class FakeSessions implements RunSessionPort {
     return this.sessions[this.sessions.length - 1]
   }
 
-  turn(session: FakeSession, text: string): void {
-    session.observer.turnCompleted(session.id, text)
+  turn(session: FakeSession, text: string, tokens = 0): void {
+    session.observer.turnCompleted(session.id, text, tokens)
   }
 
   kill(session: FakeSession, error: string | null): void {
@@ -139,15 +139,17 @@ describe('RunOrchestrator', () => {
     expect(session.mode).toBe('acceptEdits')
     expect(session.owner).toMatchObject({ taskId: task.id, taskTitle: 'Build login' })
 
-    sessions.turn(session, status('working', 'scaffolding the page'))
+    sessions.turn(session, status('working', 'scaffolding the page'), 12_000)
     let run = orch.latestRun(task.id)!
     expect(run.progressNote).toBe('scaffolding the page')
     expect(run.stepsUsed).toBe(1)
+    expect(run.tokensUsed).toBe(12_000)
     expect(run.workflowVerified).toBe(true)
 
-    sessions.turn(session, COMPLETE_OK)
+    sessions.turn(session, COMPLETE_OK, 8_000)
     run = orch.latestRun(task.id)!
     expect(run.state).toBe('review')
+    expect(run.tokensUsed).toBe(20_000)
     expect(run.completion).toMatchObject({
       summary: 'built it',
       gatePassed: true,
@@ -320,7 +322,7 @@ describe('RunOrchestrator', () => {
     const task = makeTask()
     orch.delegate(task.id)
     const session = sessions.last()
-    sessions.turn(session, status('working', 'halfway through'))
+    sessions.turn(session, status('working', 'halfway through'), 5000)
     const sdkId = orch.latestRun(task.id)!.sdkSessionId
     expect(sdkId).toBe(`sdk-${session.id}`)
 
@@ -332,6 +334,7 @@ describe('RunOrchestrator', () => {
     let run = orch2.latestRun(task.id)!
     expect(run.state).toBe('interrupted')
     expect(run.progressNote).toBe('halfway through')
+    expect(run.tokensUsed).toBe(5000)
     expect(run.events.map((e) => e.kind)).toContain('interrupted')
     expect(tasks.getOrThrow(task.id).state).toBe('needs-input')
 

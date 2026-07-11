@@ -109,6 +109,8 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await page.locator('.inbox-card').getByRole('button', { name: 'Open task' }).click()
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
   await expect(page.getByText('patrol green: typecheck, lint, tests')).toBeVisible()
+  // Two fake-agent turns at 125 tokens each.
+  await expect(page.getByText('250 tokens')).toBeVisible()
   await page.getByRole('button', { name: '✓ Accept' }).click()
   await expect(page.locator('.task-row').getByText('done')).toBeVisible()
   await expect(page.locator('.attention-count')).toHaveCount(0)

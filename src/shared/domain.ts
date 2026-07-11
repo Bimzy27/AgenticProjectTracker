@@ -274,6 +274,8 @@ export interface RunRecord {
   escalation: RunEscalation | null
   nudgesUsed: number
   stepsUsed: number
+  /** Total tokens consumed across all turns (input + output + cache reads/writes). */
+  tokensUsed: number
   completion: RunCompletion | null
   /** False when the workspace quality-gate skills were missing at delegation. */
   workflowVerified: boolean

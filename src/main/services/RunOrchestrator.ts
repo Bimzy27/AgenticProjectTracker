@@ -283,6 +283,7 @@ export class RunOrchestrator {
       escalation: null,
       nudgesUsed: 0,
       stepsUsed: 0,
+      tokensUsed: 0,
       completion: null,
       workflowVerified,
       events: [
@@ -331,16 +332,18 @@ export class RunOrchestrator {
 
   private observerFor(run: RunRecord): RunSessionObserver {
     return {
-      turnCompleted: (_sessionId, assistantText) => this.onTurnCompleted(run, assistantText),
+      turnCompleted: (_sessionId, assistantText, turnTokens) =>
+        this.onTurnCompleted(run, assistantText, turnTokens),
       stateChanged: (_sessionId, state) => this.onStateChanged(run, state),
       closed: (_sessionId, error) => this.onSessionClosed(run, error)
     }
   }
 
-  private onTurnCompleted(run: RunRecord, assistantText: string): void {
+  private onTurnCompleted(run: RunRecord, assistantText: string, turnTokens: number): void {
     if (run.state !== 'active') return
     run.sdkSessionId = this.sessions.sdkSessionIdFor(run.sessionId) ?? run.sdkSessionId
     run.stepsUsed++
+    run.tokensUsed += turnTokens
     const task = this.tasks.get(run.taskId)
     if (!task) return
     if (run.stepsUsed > task.stepBudget) {
@@ -522,7 +525,11 @@ export class RunOrchestrator {
       return
     }
     const parsed = JSON.parse(raw) as RunsFile
-    this.runs = Array.isArray(parsed.runs) ? parsed.runs : []
+    // tokensUsed was added after the first release; default it for older records.
+    this.runs = (Array.isArray(parsed.runs) ? parsed.runs : []).map((run) => ({
+      ...run,
+      tokensUsed: run.tokensUsed ?? 0
+    }))
   }
 
   private save(): void {

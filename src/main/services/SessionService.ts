@@ -41,8 +41,12 @@ export interface SessionOwner {
 
 /** Hooks the run orchestrator uses to supervise an owned session. */
 export interface RunSessionObserver {
-  /** The agent's turn ended (SDK result message); text is the turn's assistant output. */
-  turnCompleted(sessionId: string, assistantText: string): void
+  /**
+   * The agent's turn ended (SDK result message); text is the turn's assistant
+   * output and turnTokens the tokens that turn consumed (usage on the result
+   * message is per-turn, verified against the live CLI).
+   */
+  turnCompleted(sessionId: string, assistantText: string, turnTokens: number): void
   stateChanged(sessionId: string, state: SessionState): void
   /** The SDK stream ended; error is null on a clean end. */
   closed(sessionId: string, error: string | null): void
@@ -206,6 +210,7 @@ class ManagedSession {
     const newItems: TranscriptItem[] = []
 
     let turnEnded = false
+    let turnTokens = 0
     if (message.type === 'assistant') {
       for (const part of message.message.content) {
         if (part.type === 'text' && part.text.trim()) {
@@ -224,12 +229,13 @@ class ManagedSession {
     } else if (message.type === 'result') {
       this.state = 'awaiting-input'
       turnEnded = true
+      turnTokens = usageTotal(message)
     }
     this.touch(newItems)
     if (turnEnded) {
       const assistantText = this.turnText.join('\n\n')
       this.turnText = []
-      this.observer?.turnCompleted(this.localId, assistantText)
+      this.observer?.turnCompleted(this.localId, assistantText, turnTokens)
     }
   }
 
@@ -517,6 +523,23 @@ export class SessionService {
     writeFileSync(tmpPath, JSON.stringify(this.curation, null, 2), 'utf8')
     renameSync(tmpPath, this.curationPath)
   }
+}
+
+/** Tokens a result message reports for its turn; tolerant of the fake-agent seam omitting usage. */
+function usageTotal(message: SDKMessage): number {
+  const usage = (message as { usage?: Record<string, unknown> }).usage
+  if (!usage) return 0
+  let total = 0
+  for (const key of [
+    'input_tokens',
+    'output_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_input_tokens'
+  ]) {
+    const value = usage[key]
+    if (typeof value === 'number') total += value
+  }
+  return total
 }
 
 function truncate(text: string, max = 120): string {
