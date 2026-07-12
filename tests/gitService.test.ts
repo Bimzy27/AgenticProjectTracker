@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -41,6 +41,16 @@ describe('GitService against a fixture repository', () => {
     const plain = mkdtempSync(join(tmpdir(), 'apt-plain-'))
     expect(await service.isGitRepo(plain)).toBe(false)
     rmSync(plain, { recursive: true, force: true })
+  })
+
+  it('resolves the repo root from the root itself and from a subdirectory', async () => {
+    const root = await service.repoRoot(repo)
+    const nested = join(repo, 'nested', 'deeper')
+    mkdirSync(nested, { recursive: true })
+    expect(await service.repoRoot(nested)).toBe(root)
+    // Compare roots to each other, not to `repo`: git may report a symlink- or
+    // case-normalised alias of the mkdtemp path. The name still identifies it.
+    expect(root.toLowerCase()).toContain('apt-git-')
   })
 
   it('reports status with branch, dirty flag, and change count', async () => {

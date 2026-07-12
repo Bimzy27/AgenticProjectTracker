@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { simpleGit } from 'simple-git'
 import type { SimpleGit } from 'simple-git'
 import type { DiffFile, RepoRefs, WorkingTreeArea } from '@shared/domain'
@@ -26,6 +26,16 @@ export class GitService {
     } catch {
       return false
     }
+  }
+
+  /**
+   * Absolute path of the working-tree root containing `path` (the directory
+   * holding `.git`), in platform separators. Rejects when `path` is not
+   * inside a git repository.
+   */
+  async repoRoot(path: string): Promise<string> {
+    const raw = await this.git(path).revparse(['--show-toplevel'])
+    return normalize(raw.trim())
   }
 
   /** owner/repo of the first GitHub remote, if any. */

@@ -5,6 +5,7 @@
 import type {
   AddProjectInput,
   DirectoryInspection,
+  EditorLaunchResult,
   GithubAuthState,
   InboxItem,
   PipelineStatusSummary,
@@ -39,6 +40,11 @@ export interface TrackerApi {
   /** Desktop-only helper; returns null when the user cancels the picker. */
   pickProjectDirectory(): Promise<string | null>
   inspectDirectory(path: string): Promise<DirectoryInspection>
+  /**
+   * Open the project's git repository root in VS Code; when VS Code is not
+   * installed, prompt the user to pick another program instead.
+   */
+  openProjectInEditor(projectId: string): Promise<EditorLaunchResult>
 
   // Git diffs
   getWorkingTreeDiff(projectId: string): Promise<WorkingTreeDiff>

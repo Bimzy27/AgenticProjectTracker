@@ -33,6 +33,12 @@ export interface ProjectPatch {
   path?: string
 }
 
+/**
+ * Outcome of an open-in-editor request: opened in VS Code, opened in a
+ * user-picked fallback program, or dismissed without opening anything.
+ */
+export type EditorLaunchResult = 'vscode' | 'other' | 'cancelled'
+
 /** Result of validating a directory chosen during registration. */
 export interface DirectoryInspection {
   path: string

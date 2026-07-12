@@ -1,4 +1,5 @@
 import type { Project } from '@shared/domain'
+import { tracker } from '../tracker'
 import { AnalyticsTab } from './AnalyticsTab'
 import { DiffsTab } from './DiffsTab'
 import { PipelinesTab } from './PipelinesTab'
@@ -45,6 +46,12 @@ export function ProjectView({
             {project.github ? ` · ${project.github.owner}/${project.github.repo}` : ''}
           </p>
         </div>
+        <button
+          title="Open the repository root in VS Code"
+          onClick={() => void tracker.invoke('openProjectInEditor', project.id).catch(console.error)}
+        >
+          VSCode
+        </button>
       </header>
       <div className="tab-bar">
         {TABS.map((t) => (

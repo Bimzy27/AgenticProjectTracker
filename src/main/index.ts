@@ -5,6 +5,7 @@ import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
 import { AnalyticsService, GithubMetricsProvider } from './services/AnalyticsService'
+import { EditorService } from './services/EditorService'
 import { createFakeAgentQuery } from './services/FakeAgentQuery'
 import { GithubClient } from './services/GithubClient'
 import { GitService } from './services/GitService'
@@ -143,6 +144,37 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   const analytics = new AnalyticsService(new GithubMetricsProvider(github))
   const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
 
+  const editor = new EditorService({
+    // APT_TEST_EDITOR_CMD is a test seam: treat this executable as VS Code
+    // so E2E runs never depend on (or launch) a real install.
+    vsCodeCommand: process.env.APT_TEST_EDITOR_CMD,
+    pickFallbackProgram: async (repoRoot) => {
+      if (!mainWindow) return null
+      const choice = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'VS Code not found',
+        message: 'Visual Studio Code was not found on this machine.',
+        detail: `Choose another program to open ${repoRoot} with.`,
+        buttons: ['Choose program…', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (choice.response !== 0) return null
+      const picked = await dialog.showOpenDialog(mainWindow, {
+        title: 'Choose a program to open the project with',
+        properties: ['openFile'],
+        filters:
+          process.platform === 'win32'
+            ? [
+                { name: 'Programs', extensions: ['exe', 'cmd', 'bat'] },
+                { name: 'All files', extensions: ['*'] }
+              ]
+            : []
+      })
+      return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+    }
+  })
+
   const watchers = new Watchers(storage, {
     repoChanged: (projectId) => {
       emitTrackerEvent('diff-changed', { projectId })
@@ -168,6 +200,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     analytics,
     github,
     tokens,
+    editor,
     pickDirectory: async () => {
       // Test seam: E2E tests cannot drive the native dialog.
       if (process.env.APT_TEST_PICK_DIR) return process.env.APT_TEST_PICK_DIR

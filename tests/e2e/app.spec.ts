@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 
@@ -10,6 +10,9 @@ let page: Page
 let userData: string
 let claudeHome: string
 let repo: string
+let editorDir: string
+let editorCmd: string
+let editorLaunchFile: string
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
@@ -19,6 +22,20 @@ test.beforeAll(async () => {
   userData = mkdtempSync(join(tmpdir(), 'apt-e2e-data-'))
   claudeHome = mkdtempSync(join(tmpdir(), 'apt-e2e-claude-'))
   repo = mkdtempSync(join(tmpdir(), 'apt-e2e-repo-'))
+  editorDir = mkdtempSync(join(tmpdir(), 'apt-e2e-editor-'))
+
+  // Stub editor injected via APT_TEST_EDITOR_CMD: records its first argument
+  // instead of opening anything, so the test can assert the launched path.
+  editorLaunchFile = join(editorDir, 'launch.txt')
+  if (process.platform === 'win32') {
+    editorCmd = join(editorDir, 'editor.cmd')
+    writeFileSync(editorCmd, '@(echo %~1)>"%~dp0launch.txt"\r\n')
+  } else {
+    editorCmd = join(editorDir, 'editor.sh')
+    writeFileSync(editorCmd, '#!/bin/sh\nprintf \'%s\' "$1" > "$(dirname "$0")/launch.txt"\n', {
+      mode: 0o755
+    })
+  }
 
   // Fixture repo with a commit and a dirty working tree.
   git(repo, 'init', '-b', 'main')
@@ -56,7 +73,8 @@ test.beforeAll(async () => {
       ...process.env,
       APT_USER_DATA_DIR: userData,
       APT_CLAUDE_HOME: claudeHome,
-      APT_TEST_PICK_DIR: repo
+      APT_TEST_PICK_DIR: repo,
+      APT_TEST_EDITOR_CMD: editorCmd
     }
   })
   page = await app.firstWindow()
@@ -64,7 +82,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app?.close()
-  for (const dir of [userData, claudeHome, repo]) rmSync(dir, { recursive: true, force: true })
+  for (const dir of [userData, claudeHome, repo, editorDir]) {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('shows the empty dashboard on first launch', async () => {
@@ -89,6 +109,17 @@ test('shows the working tree diff with the modified line', async () => {
   await expect(page.getByRole('button', { name: 'Working tree' })).toBeVisible()
   await expect(page.getByText('hello.ts').first()).toBeVisible()
   await expect(page.getByText('export const greeting = "hello world"').first()).toBeVisible()
+})
+
+test('the VSCode button opens the repository root in the editor', async () => {
+  await page.getByRole('button', { name: 'VSCode' }).click()
+  await expect.poll(() => existsSync(editorLaunchFile), { timeout: 10_000 }).toBe(true)
+  const launchedPath = normalize(readFileSync(editorLaunchFile, 'utf8').trim())
+  const expectedRoot = normalize(
+    execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo, encoding: 'utf8' }).trim()
+  )
+  // Case-insensitive: Windows may report an 8.3/case alias of the temp path.
+  expect(launchedPath.toLowerCase()).toBe(expectedRoot.toLowerCase())
 })
 
 test('opens a discovered session transcript', async () => {

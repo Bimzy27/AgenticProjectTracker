@@ -8,6 +8,7 @@ import type {
 } from '@shared/domain'
 import type { TrackerApi } from '@shared/ipc'
 import type { AnalyticsService } from './services/AnalyticsService'
+import type { EditorService } from './services/EditorService'
 import type { GithubClient } from './services/GithubClient'
 import type { GitService } from './services/GitService'
 import type { InboxService } from './services/InboxService'
@@ -31,6 +32,7 @@ export interface ApiDeps {
   analytics: AnalyticsService
   github: GithubClient
   tokens: TokenStore
+  editor: EditorService
   /** Desktop directory picker, injected by the composition root. */
   pickDirectory: () => Promise<string | null>
   /** Called after any registry mutation so watchers and pollers resync. */
@@ -64,6 +66,11 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     getProjectStatus: async (id: string) => deps.projects.getStatus(id),
     pickProjectDirectory: async () => deps.pickDirectory(),
     inspectDirectory: async (path: string) => deps.projects.inspectDirectory(path),
+    openProjectInEditor: async (projectId: string) => {
+      const project = deps.store.getOrThrow(projectId)
+      // Open from the repository root even when the tracked path is a subdirectory.
+      return deps.editor.openProject(await deps.git.repoRoot(project.path))
+    },
 
     // Git diffs
     getWorkingTreeDiff: async (projectId: string) => {
