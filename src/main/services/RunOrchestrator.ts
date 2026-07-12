@@ -169,7 +169,7 @@ export class RunOrchestrator {
     if (task.state !== 'needs-input') throw new Error('Task is not waiting for input')
     const run = this.requireRun(taskId)
     this.pushEvent(run, 'answered', answerText)
-    this.resumeWith(run, task, buildAnswer(answerText))
+    this.resumeWith(run, task, buildAnswer(answerText), answerText)
   }
 
   /** Manually stop an active run; the task moves to failed with history retained. */
@@ -306,20 +306,48 @@ export class RunOrchestrator {
     this.commit(run)
   }
 
-  /** Send a follow-up to the run's session, resuming it through the SDK when it has ended. */
-  private resumeWith(run: RunRecord, task: TaskDefinition, message: string): void {
+  /**
+   * Send a follow-up to the run's session, resuming it through the SDK when it
+   * has ended. When the session died before the CLI assigned it an id (it
+   * likely never spawned), there is no conversation to resume: restart from a
+   * fresh briefing instead of dead-ending the task, carrying userContext (the
+   * user's answer, when there is one) into the new briefing.
+   */
+  private resumeWith(
+    run: RunRecord,
+    task: TaskDefinition,
+    message: string,
+    userContext: string | null = null
+  ): void {
     if (this.sessions.isSessionAlive(run.sessionId)) {
       this.sessions.sendToSession(run.sessionId, message)
     } else {
-      if (!run.sdkSessionId) throw new Error('The run session ended before it could be resumed')
-      const summary = this.sessions.startOwnedSession(
-        run.projectId,
-        message,
-        task.mode,
-        { taskId: task.id, taskTitle: task.title, runId: run.id },
-        this.observerFor(run),
-        run.sdkSessionId
-      )
+      const owner = { taskId: task.id, taskTitle: task.title, runId: run.id }
+      let summary: SessionSummary
+      if (run.sdkSessionId) {
+        summary = this.sessions.startOwnedSession(
+          run.projectId,
+          message,
+          task.mode,
+          owner,
+          this.observerFor(run),
+          run.sdkSessionId
+        )
+      } else {
+        run.workflowVerified = hasWorkspaceWorkflow(this.claudeHome)
+        const briefing = buildBriefing({ task, workflowVerified: run.workflowVerified })
+        const prompt = userContext
+          ? `${briefing}\n\n# Additional direction from the user\n\n${userContext.trim()}`
+          : briefing
+        this.pushEvent(run, 'started', 'No session to resume; restarted from a fresh briefing')
+        summary = this.sessions.startOwnedSession(
+          run.projectId,
+          prompt,
+          task.mode,
+          owner,
+          this.observerFor(run)
+        )
+      }
       run.sessionId = summary.id
     }
     run.state = 'active'

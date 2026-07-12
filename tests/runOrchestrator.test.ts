@@ -366,6 +366,49 @@ describe('RunOrchestrator', () => {
     expect(sessions.last().resumeSessionId).toBe(`sdk-${session.id}`)
   })
 
+  it('restarts from a fresh briefing when the session died before it had an id', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask()
+    orch.delegate(task.id)
+    const session = sessions.last()
+
+    // The stream dies before any turn (e.g. the CLI binary failed to spawn),
+    // so no SDK session id was ever assigned and there is nothing to resume.
+    sessions.kill(session, 'native binary failed to launch')
+    let run = orch.latestRun(task.id)!
+    expect(run.state).toBe('interrupted')
+    expect(run.sdkSessionId).toBeNull()
+
+    orch.resume(task.id)
+    const restarted = sessions.last()
+    expect(restarted.id).not.toBe(session.id)
+    expect(restarted.resumeSessionId).toBeUndefined()
+    expect(restarted.prompt).toContain('Build the login page')
+    expect(restarted.prompt).toContain('apt-status')
+    run = orch.latestRun(task.id)!
+    expect(run.state).toBe('active')
+    expect(run.events.filter((e) => e.kind === 'started')).toHaveLength(2)
+    expect(tasks.getOrThrow(task.id).state).toBe('running')
+
+    sessions.turn(restarted, COMPLETE_OK)
+    expect(tasks.getOrThrow(task.id).state).toBe('review')
+  })
+
+  it('carries the user answer into the restart briefing when nothing can be resumed', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask()
+    orch.delegate(task.id)
+    sessions.kill(sessions.last(), 'native binary failed to launch')
+
+    orch.answer(task.id, 'Try again; the binary is fixed now')
+    const restarted = sessions.last()
+    expect(restarted.resumeSessionId).toBeUndefined()
+    expect(restarted.prompt).toContain('Build the login page')
+    expect(restarted.prompt).toContain('Additional direction from the user')
+    expect(restarted.prompt).toContain('Try again; the binary is fixed now')
+    expect(tasks.getOrThrow(task.id).state).toBe('running')
+  })
+
   it('marks runs as unverified when workspace skills are missing', () => {
     rmSync(join(claudeHome, 'skills'), { recursive: true, force: true })
     const orch = makeOrchestrator()
