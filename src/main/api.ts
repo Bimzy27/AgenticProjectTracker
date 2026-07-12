@@ -121,6 +121,8 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
       deps.tasks.reorder(taskId, beforeTaskId)
       return deps.tasks.listTasks(projectId)
     },
+    archiveTask: async (_projectId: string, taskId: string) => deps.tasks.archive(taskId),
+    reviveTask: async (_projectId: string, taskId: string) => deps.tasks.revive(taskId),
 
     // Agent run loop
     delegateTask: async (_projectId: string, taskId: string) => deps.orchestrator.delegate(taskId),

@@ -136,7 +136,15 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await expect(filesLabel).toBeVisible()
   await expect(filesLabel).toHaveAttribute('title', /src\/greeting\.ts/)
   await page.getByRole('button', { name: '✓ Accept' }).click()
+  // Accepting completes the task, which archives it automatically: it leaves
+  // the default backlog and shows up under the archived toggle instead.
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+  await expect(page.locator('.task-detail-header .badge.task-archived')).toBeVisible()
+  await expect(page.locator('.task-row')).toHaveCount(0)
+  await page.locator('.task-list').getByRole('checkbox').check()
+  await expect(page.locator('.task-row').getByText('Greeting feature')).toBeVisible()
   await expect(page.locator('.task-row').getByText('done')).toBeVisible()
+  await page.locator('.task-list').getByRole('checkbox').uncheck()
   await expect(page.locator('.attention-count')).toHaveCount(0)
 
   // The run's session is attributed to the task and its transcript is reachable.
@@ -228,6 +236,31 @@ test('a running task can be stopped manually and moves to failed', async () => {
   // The transcript survives the stop.
   await page.getByRole('button', { name: 'Open transcript →' }).click()
   await expect(page.getByText('reading the codebase').first()).toBeVisible()
+})
+
+test('archived tasks can be viewed, revived to the backlog, and archived manually', async () => {
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+
+  // The completed greeting task is hidden from the default backlog.
+  await expect(page.locator('.task-row').getByText('Greeting feature')).toHaveCount(0)
+
+  // The archive lists it; reviving removes the completed status.
+  await page.locator('.task-list').getByRole('checkbox').check()
+  await page.locator('.task-row').getByText('Greeting feature').click()
+  await expect(page.locator('.task-detail-header .badge.task-archived')).toBeVisible()
+  await page.getByRole('button', { name: '↺ Revive' }).click()
+  await page.locator('.task-list').getByRole('checkbox').uncheck()
+  await expect(page.locator('.task-row').getByText('Greeting feature')).toBeVisible()
+  await expect(page.locator('.task-row .badge.task-draft')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Delegate to agent' })).toBeVisible()
+
+  // A settled task can be archived manually from its detail.
+  await page.locator('.task-row').getByText('Doomed build').click()
+  await page.getByRole('button', { name: 'Archive' }).click()
+  await expect(page.locator('.task-row').getByText('Doomed build')).toHaveCount(0)
+  await page.locator('.task-list').getByRole('checkbox').check()
+  await expect(page.locator('.task-row').getByText('Doomed build')).toBeVisible()
+  await page.locator('.task-list').getByRole('checkbox').uncheck()
 })
 
 test('the active tasks view monitors running work per project and opens the task', async () => {

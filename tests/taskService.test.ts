@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -95,6 +95,62 @@ describe('TaskService', () => {
     expect(() => service.update(task.id, { recoveryBudget: -1 })).toThrow(/zero or a positive/)
     expect(() => service.update(task.id, { title: '  ' })).toThrow(/title/)
     expect(() => service.create('p1', { ...input, purpose: ' ' })).toThrow(/purpose/)
+  })
+
+  it('archives a task automatically when it completes', () => {
+    const task = service.create('p1', input)
+    expect(task.archived).toBe(false)
+    service.setState(task.id, 'done')
+    expect(service.getOrThrow(task.id).archived).toBe(true)
+  })
+
+  it('archives settled tasks manually', () => {
+    const draft = service.create('p1', { ...input, title: 'Draft' })
+    const failed = service.create('p1', { ...input, title: 'Failed' })
+    service.setState(failed.id, 'failed')
+    service.archive(draft.id)
+    service.archive(failed.id)
+    expect(service.getOrThrow(draft.id).archived).toBe(true)
+    expect(service.getOrThrow(failed.id).archived).toBe(true)
+  })
+
+  it.each(['queued', 'running', 'needs-input', 'review'] as const)(
+    'refuses to archive a task in %s state',
+    (state) => {
+      const task = service.create('p1', input)
+      service.setState(task.id, state)
+      expect(() => service.archive(task.id)).toThrow(/cannot be archived/)
+    }
+  )
+
+  it('revives an archived done task back to draft', () => {
+    const task = service.create('p1', input)
+    service.setState(task.id, 'done')
+    const revived = service.revive(task.id)
+    expect(revived).toMatchObject({ archived: false, state: 'draft' })
+    expect(revived.transitions.map((t) => t.state)).toEqual(['draft', 'done', 'draft'])
+  })
+
+  it('revives a manually archived task without touching its state', () => {
+    const task = service.create('p1', input)
+    service.setState(task.id, 'failed')
+    service.archive(task.id)
+    expect(service.revive(task.id)).toMatchObject({ archived: false, state: 'failed' })
+    expect(() => service.revive(task.id)).toThrow(/not archived/)
+  })
+
+  it('sweeps pre-archiving done tasks into the archive on load', () => {
+    const done = service.create('p1', { ...input, title: 'Old done' })
+    const open = service.create('p1', { ...input, title: 'Old open' })
+    service.setState(done.id, 'done')
+    // Rewrite the file as an older version of the app would have: no archived flag.
+    const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))
+    for (const task of file.tasks) delete task.archived
+    writeFileSync(join(userData, 'tasks.json'), JSON.stringify(file), 'utf8')
+
+    const reloaded = new TaskService(userData, sink as TaskEventSink)
+    expect(reloaded.getOrThrow(done.id).archived).toBe(true)
+    expect(reloaded.getOrThrow(open.id).archived).toBe(false)
   })
 
   it('persists tasks, states, and order across instances', () => {

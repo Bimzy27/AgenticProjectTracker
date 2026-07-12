@@ -9,6 +9,9 @@ const DEFAULT_RECOVERY_BUDGET = 3
 /** States in which a run session is live, so the definition must not shift under it. */
 const ACTIVE_STATES: ReadonlySet<TaskState> = new Set(['running', 'needs-input'])
 
+/** Settled states from which a task may be archived; delegated work must finish or be stopped first. */
+const ARCHIVABLE_STATES: ReadonlySet<TaskState> = new Set(['draft', 'done', 'failed'])
+
 interface TasksFile {
   version: 1
   tasks: TaskDefinition[]
@@ -73,6 +76,7 @@ export class TaskService {
       stepBudget: input.stepBudget ?? DEFAULT_STEP_BUDGET,
       recoveryBudget: input.recoveryBudget ?? DEFAULT_RECOVERY_BUDGET,
       reviewFeedback: null,
+      archived: false,
       createdAt: now,
       updatedAt: now,
       transitions: [{ state: 'draft', at: now }]
@@ -131,14 +135,46 @@ export class TaskService {
     return this.listTasks(task.projectId)
   }
 
-  /** Record a lifecycle transition with its timestamp. */
+  /** Record a lifecycle transition with its timestamp. Completed tasks are archived automatically. */
   setState(taskId: string, state: TaskState): TaskDefinition {
     const task = this.getOrThrow(taskId)
     if (task.state === state) return task
     const now = new Date().toISOString()
     task.state = state
+    if (state === 'done') task.archived = true
     task.updatedAt = now
     task.transitions.push({ state, at: now })
+    this.commit(task.projectId)
+    return task
+  }
+
+  /** Hide a settled task (draft, done, or failed) in the project's archive. */
+  archive(taskId: string): TaskDefinition {
+    const task = this.getOrThrow(taskId)
+    if (!ARCHIVABLE_STATES.has(task.state)) {
+      throw new Error(`Task cannot be archived from state '${task.state}'`)
+    }
+    if (task.archived) return task
+    task.archived = true
+    task.updatedAt = new Date().toISOString()
+    this.commit(task.projectId)
+    return task
+  }
+
+  /**
+   * Bring an archived task back to the backlog. A completed task loses its
+   * done state and returns to draft so it can be delegated again.
+   */
+  revive(taskId: string): TaskDefinition {
+    const task = this.getOrThrow(taskId)
+    if (!task.archived) throw new Error('Task is not archived')
+    const now = new Date().toISOString()
+    task.archived = false
+    if (task.state === 'done') {
+      task.state = 'draft'
+      task.transitions.push({ state: 'draft', at: now })
+    }
+    task.updatedAt = now
     this.commit(task.projectId)
     return task
   }
@@ -170,8 +206,13 @@ export class TaskService {
       this.tasks = []
       return
     }
-    const parsed = JSON.parse(raw) as TasksFile
-    this.tasks = Array.isArray(parsed.tasks) ? parsed.tasks : []
+    const parsed = JSON.parse(raw) as {
+      tasks?: Array<Omit<TaskDefinition, 'archived'> & { archived?: boolean }>
+    }
+    const stored = Array.isArray(parsed.tasks) ? parsed.tasks : []
+    // Migration: files written before archiving existed lack the flag; done
+    // tasks are swept into the archive to match the auto-archive-on-completion rule.
+    this.tasks = stored.map((t) => ({ ...t, archived: t.archived ?? t.state === 'done' }))
   }
 
   private save(): void {

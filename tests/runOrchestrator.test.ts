@@ -167,6 +167,21 @@ describe('RunOrchestrator', () => {
     expect(orch.latestRun(task.id)!.state).toBe('done')
   })
 
+  it('archives an accepted task and refuses to delegate it until revived', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask()
+    orch.delegate(task.id)
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    orch.accept(task.id)
+
+    expect(tasks.getOrThrow(task.id).archived).toBe(true)
+    expect(() => orch.delegate(task.id)).toThrow(/revive it first/)
+
+    tasks.revive(task.id)
+    orch.delegate(task.id)
+    expect(tasks.getOrThrow(task.id).state).toBe('running')
+  })
+
   it('stores the completion links and defaults fields missing from older persisted records', () => {
     const orch = makeOrchestrator()
     const task = makeTask()

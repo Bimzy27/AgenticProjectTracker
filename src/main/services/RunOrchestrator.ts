@@ -154,6 +154,7 @@ export class RunOrchestrator {
   /** Queue a task for execution; it starts immediately when capacity allows. */
   delegate(taskId: string): TaskDefinition {
     const task = this.tasks.getOrThrow(taskId)
+    if (task.archived) throw new Error('Task is archived; revive it first')
     if (!['draft', 'done', 'failed'].includes(task.state)) {
       throw new Error(`Task cannot be delegated from state '${task.state}'`)
     }

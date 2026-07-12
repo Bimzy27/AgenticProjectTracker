@@ -47,6 +47,33 @@ The system SHALL allow the user to reorder queued tasks, and queued tasks SHALL 
 - **WHEN** the user moves a queued task above another queued task
 - **THEN** the moved task starts first when capacity frees up
 
+### Requirement: Task archiving
+
+The system SHALL allow the user to archive settled tasks (draft, done, or failed) within the project view, and SHALL refuse to archive tasks that are queued, running, needing input, or in review.
+The system SHALL archive a task automatically when it completes.
+Archived tasks SHALL be hidden from the default backlog view, with a control to view the archive on demand.
+The system SHALL allow the user to revive an archived task back to the backlog; reviving a completed task removes its done state so it returns to draft and can be delegated again.
+
+#### Scenario: Completing a task archives it
+
+- **WHEN** the user accepts a reviewed task as done
+- **THEN** the task is archived and no longer appears in the default backlog view
+
+#### Scenario: Viewing archived tasks
+
+- **WHEN** the user enables the archived filter in the project's task view
+- **THEN** the archived tasks are listed with their states
+
+#### Scenario: Reviving a completed task
+
+- **WHEN** the user revives an archived task that is done
+- **THEN** the task returns to the backlog in the draft state, ready to be delegated again
+
+#### Scenario: Archiving an active task is prevented
+
+- **WHEN** the user attempts to archive a task that is queued, running, needing input, or in review
+- **THEN** the system refuses and explains the run must finish or be stopped first
+
 ### Requirement: Backlog persists across restarts
 
 The system SHALL persist tasks and their states locally so the backlog survives app restarts.

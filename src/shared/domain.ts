@@ -193,6 +193,12 @@ export interface TaskDefinition {
   recoveryBudget: number
   /** Feedback from the last send-back review, included in the next briefing. */
   reviewFeedback: string | null
+  /**
+   * Archived tasks are hidden from the default backlog view. Completing a
+   * task (accepting its review into done) archives it automatically; reviving
+   * an archived task returns it to the backlog, resetting done back to draft.
+   */
+  archived: boolean
   createdAt: string
   updatedAt: string
   transitions: TaskTransition[]

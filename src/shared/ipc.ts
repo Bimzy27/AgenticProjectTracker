@@ -72,6 +72,16 @@ export interface TrackerApi {
   deleteTask(projectId: string, taskId: string): Promise<void>
   /** Move a task directly before another queued task, or to the end when beforeTaskId is null. */
   reorderTask(projectId: string, taskId: string, beforeTaskId: string | null): Promise<TaskDefinition[]>
+  /**
+   * Hide a settled task (draft, done, or failed) in the project's archive.
+   * Rejects while the task is queued, running, needs-input, or in review.
+   */
+  archiveTask(projectId: string, taskId: string): Promise<TaskDefinition>
+  /**
+   * Bring an archived task back to the backlog; a completed task loses its
+   * done state and returns to draft so it can be delegated again.
+   */
+  reviveTask(projectId: string, taskId: string): Promise<TaskDefinition>
 
   // Agent run loop
   delegateTask(projectId: string, taskId: string): Promise<TaskDefinition>

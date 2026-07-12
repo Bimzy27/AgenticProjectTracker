@@ -27,6 +27,9 @@ const STATE_LABEL: Record<TaskState, string> = {
 
 const ATTENTION_STATES: ReadonlySet<TaskState> = new Set(['needs-input', 'review'])
 
+/** Mirrors the service rule: only settled tasks can be archived. */
+const ARCHIVABLE_STATES: ReadonlySet<TaskState> = new Set(['draft', 'done', 'failed'])
+
 interface Props {
   project: Project
   /** Pre-select a task, e.g. when navigating from the inbox or a session. */
@@ -39,6 +42,7 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
   const [tasks, setTasks] = useState<TaskDefinition[] | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
   const [editing, setEditing] = useState<TaskDefinition | 'new' | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
@@ -58,6 +62,7 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
 
   if (tasks === null) return <div className="empty-state">Loading tasks…</div>
 
+  const visible = tasks.filter((t) => (showArchived ? t.archived : !t.archived))
   const selected = tasks.find((t) => t.id === selectedId) ?? null
 
   const act = (fn: () => Promise<unknown>): void => {
@@ -66,11 +71,11 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
   }
 
   const move = (task: TaskDefinition, direction: -1 | 1): void => {
-    const index = tasks.findIndex((t) => t.id === task.id)
+    const index = visible.findIndex((t) => t.id === task.id)
     const targetIndex = index + direction
-    if (targetIndex < 0 || targetIndex >= tasks.length) return
+    if (targetIndex < 0 || targetIndex >= visible.length) return
     // Moving down one slot means inserting before the element after the neighbor.
-    const beforeId = direction === -1 ? tasks[targetIndex].id : (tasks[targetIndex + 1]?.id ?? null)
+    const beforeId = direction === -1 ? visible[targetIndex].id : (visible[targetIndex + 1]?.id ?? null)
     act(() => tracker.invoke('reorderTask', project.id, task.id, beforeId))
   }
 
@@ -81,13 +86,23 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
           <button className="primary" onClick={() => setEditing('new')}>
             + New task
           </button>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            archived
+          </label>
         </div>
-        {tasks.length === 0 && (
+        {visible.length === 0 && (
           <div className="empty-state">
-            No tasks yet. Describe what an agent should build, then delegate it.
+            {showArchived
+              ? 'No archived tasks. Completed tasks land here automatically.'
+              : 'No tasks yet. Describe what an agent should build, then delegate it.'}
           </div>
         )}
-        {tasks.map((task, index) => (
+        {visible.map((task, index) => (
           <div key={task.id} className={`task-row ${task.id === selectedId ? 'active' : ''}`}>
             <button className="task-row-main" onClick={() => setSelectedId(task.id)}>
               <div className="task-row-title">{task.title}</div>
@@ -100,14 +115,20 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
                 <span>{formatRelativeTime(task.updatedAt)}</span>
               </div>
             </button>
-            <div className="task-row-order">
-              <button title="Move up" disabled={index === 0} onClick={() => move(task, -1)}>
-                ↑
-              </button>
-              <button title="Move down" disabled={index === tasks.length - 1} onClick={() => move(task, 1)}>
-                ↓
-              </button>
-            </div>
+            {!showArchived && (
+              <div className="task-row-order">
+                <button title="Move up" disabled={index === 0} onClick={() => move(task, -1)}>
+                  ↑
+                </button>
+                <button
+                  title="Move down"
+                  disabled={index === visible.length - 1}
+                  onClick={() => move(task, 1)}
+                >
+                  ↓
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </aside>
@@ -175,6 +196,7 @@ function TaskDetail({
   )
 
   const editable = task.state !== 'running' && task.state !== 'needs-input'
+  const archivable = ARCHIVABLE_STATES.has(task.state)
 
   return (
     <div className="task-detail-inner">
@@ -183,6 +205,14 @@ function TaskDetail({
           <h2>{task.title}</h2>
           <div className="task-row-meta muted">
             <span className={`badge task-${task.state}`}>{STATE_LABEL[task.state]}</span>
+            {task.archived && (
+              <span
+                className="badge task-archived"
+                title="Hidden from the backlog; revive to work on it again"
+              >
+                archived
+              </span>
+            )}
             <span className="badge">{MODES.find((m) => m.id === task.mode)?.label ?? task.mode}</span>
             {run && !run.workflowVerified && (
               <span className="badge attention" title="Workspace quality-gate skills were not detected">
@@ -192,6 +222,23 @@ function TaskDetail({
           </div>
         </div>
         <div className="task-detail-actions">
+          {task.archived ? (
+            <button
+              className="primary"
+              title="Return the task to the backlog; a completed task starts over as a draft"
+              onClick={() => onAction(() => tracker.invoke('reviveTask', project.id, task.id))}
+            >
+              ↺ Revive
+            </button>
+          ) : (
+            <button
+              disabled={!archivable}
+              title={archivable ? 'Hide the task in the archive' : 'Finish or stop the delegated run first'}
+              onClick={() => onAction(() => tracker.invoke('archiveTask', project.id, task.id))}
+            >
+              Archive
+            </button>
+          )}
           <button disabled={!editable} onClick={onEdit} title={editable ? '' : 'Stop the run first'}>
             Edit
           </button>
@@ -227,7 +274,13 @@ function TaskDetail({
         )}
       </section>
 
-      <TaskActions project={project} task={task} run={run} onAction={onAction} />
+      {task.archived ? (
+        <div className="task-action-bar">
+          <span className="muted">Archived; revive the task to work on it again.</span>
+        </div>
+      ) : (
+        <TaskActions project={project} task={task} run={run} onAction={onAction} />
+      )}
 
       {run && <RunPanel run={run} task={task} onOpenTranscript={onOpenTranscript} />}
     </div>

@@ -26,6 +26,7 @@ function task(
     stepBudget: 30,
     recoveryBudget: 3,
     reviewFeedback: null,
+    archived: false,
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-01T00:00:00Z',
     transitions: []
