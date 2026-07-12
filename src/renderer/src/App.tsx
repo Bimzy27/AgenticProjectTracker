@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { InboxItem, Project } from '@shared/domain'
 import { tracker, useTrackerEvent } from './tracker'
 import { AboutView } from './views/AboutView'
+import { ActiveTasksView } from './views/ActiveTasksView'
 import { Dashboard } from './views/Dashboard'
 import { InboxView } from './views/InboxView'
 import { ProjectView } from './views/ProjectView'
@@ -10,6 +11,7 @@ import { SettingsView } from './views/SettingsView'
 
 export type Route =
   | { view: 'dashboard' }
+  | { view: 'active-tasks' }
   | { view: 'settings' }
   | { view: 'about' }
   | { view: 'inbox' }
@@ -69,6 +71,12 @@ export function App(): React.JSX.Element {
           ⌂ Dashboard
         </button>
         <button
+          className={`nav-item ${route.view === 'active-tasks' ? 'active' : ''}`}
+          onClick={() => setRoute({ view: 'active-tasks' })}
+        >
+          ◉ Active tasks
+        </button>
+        <button
           className={`nav-item ${route.view === 'inbox' ? 'active' : ''}`}
           onClick={() => setRoute({ view: 'inbox' })}
         >
@@ -107,6 +115,13 @@ export function App(): React.JSX.Element {
           <Dashboard
             projects={projects}
             onOpenProject={(projectId, tab) => setRoute({ view: 'project', projectId, tab })}
+          />
+        )}
+        {route.view === 'active-tasks' && (
+          <ActiveTasksView
+            onOpen={(projectId, taskId) =>
+              setRoute({ view: 'project', projectId, tab: 'tasks', focusTaskId: taskId })
+            }
           />
         )}
         {route.view === 'inbox' && (

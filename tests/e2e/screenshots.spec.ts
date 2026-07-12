@@ -164,6 +164,11 @@ test('captures the delegation views in both themes', async () => {
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
   await shoot('tasks-review')
 
+  // The reviewed task is still active, so the cross-project view has content.
+  await page.getByRole('button', { name: '◉ Active tasks' }).click()
+  await expect(page.locator('.active-task-row .badge.task-review')).toBeVisible()
+  await shoot('active-tasks')
+
   await page.getByRole('button', { name: '⌂ Dashboard' }).click()
   await expect(page.getByText(/⚑ 1 in review/)).toBeVisible()
   await shoot('dashboard-delegation')

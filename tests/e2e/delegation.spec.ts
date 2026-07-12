@@ -215,3 +215,36 @@ test('a running task can be stopped manually and moves to failed', async () => {
   await page.getByRole('button', { name: 'Open transcript →' }).click()
   await expect(page.getByText('reading the codebase').first()).toBeVisible()
 })
+
+test('the active tasks view monitors running work per project and opens the task', async () => {
+  // Every task from the earlier flows has finished, so the view starts empty.
+  await page.getByRole('button', { name: '◉ Active tasks' }).click()
+  await expect(page.getByRole('heading', { name: 'Active tasks' })).toBeVisible()
+  await expect(page.getByText('No active tasks.')).toBeVisible()
+
+  scriptAgent(`On it.\n${statusBlock('working', 'sketching the monitoring view')}`)
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Monitored work')
+  await page.getByPlaceholder(/What should the agent build/).fill('Keep working so the view can watch')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.getByText('sketching the monitoring view').first()).toBeVisible()
+
+  // The running task shows under its project with live progress.
+  await page.getByRole('button', { name: '◉ Active tasks' }).click()
+  await expect(page.getByText('1 active across 1 project')).toBeVisible()
+  await expect(page.locator('.active-project-name')).toHaveText('Delegation Demo →')
+  const row = page.locator('.active-task-row')
+  await expect(row.getByText('Monitored work')).toBeVisible()
+  await expect(row.locator('.badge.task-running')).toBeVisible()
+  await expect(row.getByText('sketching the monitoring view')).toBeVisible()
+
+  // Clicking the row lands on the task's detail; stopping empties the view again.
+  await row.click()
+  await expect(page.getByRole('heading', { name: 'Monitored work' })).toBeVisible()
+  await page.getByRole('button', { name: '⏹ Stop run' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-failed')).toBeVisible()
+  await page.getByRole('button', { name: '◉ Active tasks' }).click()
+  await expect(page.getByText('No active tasks.')).toBeVisible()
+})

@@ -294,6 +294,31 @@ export interface RunRecord {
   endedAt: string | null
 }
 
+// ---------- Active tasks overview ----------
+
+/** Task states shown in the cross-project active tasks view: delegated work that has not reached a terminal state. */
+export const ACTIVE_TASK_STATES: readonly TaskState[] = ['queued', 'running', 'needs-input', 'review']
+
+/** One active task enriched with live progress from the run driving it. */
+export interface ActiveTaskEntry {
+  task: TaskDefinition
+  /**
+   * Latest progress note reported by the task's current run; null before the
+   * first report and for queued tasks (whose latest run belongs to an earlier attempt).
+   */
+  progressNote: string | null
+  /** Steps consumed by the current run, or null when no run is attached (see progressNote). */
+  stepsUsed: number | null
+}
+
+/** The active tasks of one project, for the per-project grouping of the active tasks view. */
+export interface ActiveTasksGroup {
+  projectId: string
+  projectName: string
+  /** Most urgent first: needs-input, running, review, then queued in backlog order. */
+  tasks: ActiveTaskEntry[]
+}
+
 // ---------- Release publishing ----------
 
 /** One commit that would ship in the next release. */

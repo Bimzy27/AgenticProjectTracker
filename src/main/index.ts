@@ -4,6 +4,7 @@ import { BrowserWindow, Notification, app, dialog, safeStorage, shell } from 'el
 import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
+import { ActiveTasksService } from './services/ActiveTasksService'
 import { AnalyticsService, GithubMetricsProvider } from './services/AnalyticsService'
 import { EditorService } from './services/EditorService'
 import { createFakeAgentQuery } from './services/FakeAgentQuery'
@@ -127,6 +128,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   )
   sessions.setAttributionLookup((sdkSessionId) => orchestrator.attributionFor(sdkSessionId))
   inbox = new InboxService({ projects: store, tasks, runs: orchestrator, sessions })
+  const activeTasks = new ActiveTasksService({ projects: store, tasks, runs: orchestrator })
   const release = new ReleaseService(git, tasks)
 
   const tokens = new TokenStore(userDataDir, {
@@ -206,6 +208,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     orchestrator,
     release,
     inbox,
+    activeTasks,
     pipelines,
     analytics,
     github,

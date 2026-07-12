@@ -4,6 +4,7 @@
 
 import type {
   AboutInfo,
+  ActiveTasksGroup,
   AddProjectInput,
   DirectoryInspection,
   EditorLaunchResult,
@@ -102,6 +103,15 @@ export interface TrackerApi {
 
   // Attention inbox
   listInbox(): Promise<InboxItem[]>
+
+  // Active tasks overview
+  /**
+   * Currently active tasks (queued, running, needs-input, review) across all
+   * projects, grouped per project in registry order. Projects without active
+   * tasks are omitted; derived from live state, so consumers refresh on
+   * `tasks-changed` and `run-updated` events.
+   */
+  listActiveTasks(): Promise<ActiveTasksGroup[]>
 
   // Pipelines
   getPipelineRuns(projectId: string): Promise<WorkflowRun[]>

@@ -7,6 +7,7 @@ import type {
   TaskPatch
 } from '@shared/domain'
 import type { TrackerApi } from '@shared/ipc'
+import type { ActiveTasksService } from './services/ActiveTasksService'
 import type { AnalyticsService } from './services/AnalyticsService'
 import type { EditorService } from './services/EditorService'
 import type { GithubClient } from './services/GithubClient'
@@ -31,6 +32,7 @@ export interface ApiDeps {
   orchestrator: RunOrchestrator
   release: ReleaseService
   inbox: InboxService
+  activeTasks: ActiveTasksService
   pipelines: PipelineService
   analytics: AnalyticsService
   github: GithubClient
@@ -140,6 +142,9 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
 
     // Attention inbox
     listInbox: async () => deps.inbox.list(),
+
+    // Active tasks overview
+    listActiveTasks: async () => deps.activeTasks.list(),
 
     // Pipelines
     getPipelineRuns: async (projectId: string) => deps.pipelines.getRuns(projectId),
