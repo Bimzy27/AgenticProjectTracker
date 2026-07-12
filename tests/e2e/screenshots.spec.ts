@@ -80,7 +80,7 @@ test.beforeAll(async () => {
     JSON.stringify({
       turns: [
         'I need direction before I pick a database.\n```apt-status\n{ "state": "question", "note": "Should sessions persist in SQLite or plain JSON files?" }\n```',
-        'Done and verified.\n```apt-status\n{ "state": "complete", "note": "Added JSON-file session persistence with tests", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests" }\n```'
+        'Done and verified.\n```apt-status\n{ "state": "complete", "note": "Added JSON-file session persistence with tests", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests", "debugUrl": "http://localhost:5173/sessions" }\n```'
       ]
     })
   )

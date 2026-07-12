@@ -227,6 +227,8 @@ export interface RunStatusReport {
   gatePassed: boolean | null
   /** For complete reports: how the gate result was obtained (e.g. patrol output). */
   gateSummary: string | null
+  /** For complete reports: http(s) link to test the changes in a debug environment, when the agent could provide one. */
+  debugUrl: string | null
 }
 
 export type RunState = 'active' | 'needs-input' | 'review' | 'done' | 'failed' | 'interrupted'
@@ -245,6 +247,8 @@ export interface RunCompletion {
   summary: string
   gatePassed: boolean
   gateSummary: string | null
+  /** Link to test the changes in a debug environment; null when the agent had nothing to link. */
+  debugUrl: string | null
   at: string
 }
 
@@ -308,6 +312,8 @@ export interface InboxItem {
   sessionId: string | null
   /** Question text, failure history, or completion summary. */
   message: string
+  /** For review items: link to test the changes in a debug environment, when the agent provided one. */
+  debugUrl: string | null
   at: string
 }
 

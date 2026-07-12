@@ -1236,6 +1236,10 @@ label.form-row {
   max-height: 180px;
   overflow-y: auto;
 }
+.inbox-card-debug-link {
+  align-self: flex-start;
+  word-break: break-all;
+}
 .inbox-card-actions {
   display: flex;
   gap: 8px;

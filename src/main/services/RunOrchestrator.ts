@@ -497,6 +497,7 @@ export class RunOrchestrator {
       summary: report.note,
       gatePassed: true,
       gateSummary: report.gateSummary,
+      debugUrl: report.debugUrl,
       at: new Date().toISOString()
     }
     this.pushEvent(run, 'completed', report.note)
@@ -553,10 +554,12 @@ export class RunOrchestrator {
       return
     }
     const parsed = JSON.parse(raw) as RunsFile
-    // tokensUsed was added after the first release; default it for older records.
+    // tokensUsed and completion.debugUrl were added after the first release;
+    // default them for older records.
     this.runs = (Array.isArray(parsed.runs) ? parsed.runs : []).map((run) => ({
       ...run,
-      tokensUsed: run.tokensUsed ?? 0
+      tokensUsed: run.tokensUsed ?? 0,
+      completion: run.completion ? { ...run.completion, debugUrl: run.completion.debugUrl ?? null } : null
     }))
   }
 

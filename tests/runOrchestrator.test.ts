@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -153,13 +153,40 @@ describe('RunOrchestrator', () => {
     expect(run.completion).toMatchObject({
       summary: 'built it',
       gatePassed: true,
-      gateSummary: 'patrol green'
+      gateSummary: 'patrol green',
+      debugUrl: null
     })
     expect(tasks.getOrThrow(task.id).state).toBe('review')
 
     orch.accept(task.id)
     expect(tasks.getOrThrow(task.id).state).toBe('done')
     expect(orch.latestRun(task.id)!.state).toBe('done')
+  })
+
+  it('stores the completion debug link and defaults it for records persisted before the field existed', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask()
+    orch.delegate(task.id)
+    sessions.turn(
+      sessions.last(),
+      status(
+        'complete',
+        'built it',
+        ', "gatePassed": true, "gateSummary": "patrol green", "debugUrl": "http://localhost:5173/login"'
+      )
+    )
+    expect(orch.latestRun(task.id)!.completion!.debugUrl).toBe('http://localhost:5173/login')
+
+    // Strip the field from the persisted record to simulate a pre-debugUrl release.
+    const runsPath = join(userData, 'runs.json')
+    const persisted = JSON.parse(readFileSync(runsPath, 'utf8'))
+    delete persisted.runs[0].completion.debugUrl
+    writeFileSync(runsPath, JSON.stringify(persisted))
+
+    const orch2 = new RunOrchestrator(userData, tasks, new FakeSessions(), sink as RunEventSink, {
+      claudeHome
+    })
+    expect(orch2.latestRun(task.id)!.completion!.debugUrl).toBeNull()
   })
 
   it('recovers from blocked reports with corrective nudges and succeeds', () => {

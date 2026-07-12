@@ -74,7 +74,8 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
     `Done.\n${statusBlock(
       'complete',
       'Added the casual greeting and verified it',
-      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"'
+      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"' +
+        ', "debugUrl": "http://localhost:5173/greeting"'
     )}`
   )
 
@@ -104,11 +105,20 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await page.locator('.inbox-card').getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('.inbox-card .badge.inbox-review')).toBeVisible()
   await expect(page.getByText('Added the casual greeting and verified it')).toBeVisible()
+  // The completion's debug link is offered right on the inbox card.
+  await expect(page.locator('.inbox-card').getByRole('link', { name: /Test the changes/ })).toHaveAttribute(
+    'href',
+    'http://localhost:5173/greeting'
+  )
 
-  // Review from the task detail: completion summary, gate result, accept.
+  // Review from the task detail: completion summary, gate result, debug link, accept.
   await page.locator('.inbox-card').getByRole('button', { name: 'Open task' }).click()
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
   await expect(page.getByText('patrol green: typecheck, lint, tests')).toBeVisible()
+  await expect(page.locator('.review-panel').getByRole('link', { name: /Test the changes/ })).toHaveAttribute(
+    'href',
+    'http://localhost:5173/greeting'
+  )
   // Two fake-agent turns at 125 tokens each.
   await expect(page.getByText('250 tokens')).toBeVisible()
   await page.getByRole('button', { name: '✓ Accept' }).click()

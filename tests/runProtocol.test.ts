@@ -58,11 +58,18 @@ describe('parseStatusBlock', () => {
       state: 'complete',
       note: 'built it',
       gatePassed: true,
-      gateSummary: 'patrol green'
+      gateSummary: 'patrol green',
+      debugUrl: null
     })
 
     const missingGate = parseStatusBlock(block('{ "state": "complete", "note": "built it" }'))
-    expect(missingGate).toEqual({ state: 'complete', note: 'built it', gatePassed: null, gateSummary: null })
+    expect(missingGate).toEqual({
+      state: 'complete',
+      note: 'built it',
+      gatePassed: null,
+      gateSummary: null,
+      debugUrl: null
+    })
 
     const failingGate = parseStatusBlock(block('{ "state": "complete", "gatePassed": false }'))
     expect(failingGate).toMatchObject({ state: 'complete', gatePassed: false })
@@ -71,6 +78,27 @@ describe('parseStatusBlock', () => {
   it('tolerates unknown extra fields', () => {
     const report = parseStatusBlock(block('{ "state": "working", "note": "n", "mood": "great" }'))
     expect(report).toMatchObject({ state: 'working', note: 'n' })
+  })
+
+  it('accepts an http(s) debug link on complete reports', () => {
+    const report = parseStatusBlock(
+      block(
+        '{ "state": "complete", "note": "done", "gatePassed": true, "debugUrl": "http://localhost:5173/" }'
+      )
+    )
+    expect(report).toMatchObject({ state: 'complete', debugUrl: 'http://localhost:5173/' })
+
+    const https = parseStatusBlock(
+      block('{ "state": "complete", "note": "done", "debugUrl": "https://preview.example.com/pr-42" }')
+    )
+    expect(https).toMatchObject({ debugUrl: 'https://preview.example.com/pr-42' })
+  })
+
+  it('drops debug links that are not well-formed http(s) URLs', () => {
+    for (const bad of ['"run npm start"', '"file:///C:/app/index.html"', '"localhost:5173"', 'true']) {
+      const report = parseStatusBlock(block(`{ "state": "complete", "note": "done", "debugUrl": ${bad} }`))
+      expect(report).toMatchObject({ state: 'complete', debugUrl: null })
+    }
   })
 })
 
@@ -89,6 +117,14 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('email+password form')
     expect(briefing).toContain('```apt-status')
     expect(briefing).toContain('/patrol')
+  })
+
+  it('instructs the agent to include a debug testing link when able', () => {
+    for (const workflowVerified of [true, false]) {
+      const briefing = buildBriefing({ task, workflowVerified })
+      expect(briefing).toContain('"debugUrl"')
+      expect(briefing).toContain('debug environment')
+    }
   })
 
   it('omits workspace skill instructions when the workflow is unverified', () => {

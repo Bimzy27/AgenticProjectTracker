@@ -87,6 +87,17 @@ function InboxCard({
         <span className="muted">{formatRelativeTime(item.at)}</span>
       </div>
       <pre className="inbox-card-message">{item.message}</pre>
+      {item.kind === 'review' && item.debugUrl && (
+        <a
+          className="inbox-card-debug-link"
+          href={item.debugUrl}
+          target="_blank"
+          rel="noreferrer"
+          title={item.debugUrl}
+        >
+          ▶ Test the changes ({item.debugUrl})
+        </a>
+      )}
       <div className="inbox-card-actions">
         {(item.kind === 'question' || item.kind === 'recovery-exhausted' || item.kind === 'step-budget') &&
           item.taskId && (

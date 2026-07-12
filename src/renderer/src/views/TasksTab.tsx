@@ -333,6 +333,18 @@ function TaskActions({
                 {run.completion.gateSummary ? ` · ${run.completion.gateSummary}` : ''}
                 {!run.workflowVerified && ' · workspace workflow was not detected on this machine'}
               </p>
+              {run.completion.debugUrl && (
+                <p>
+                  <a
+                    href={run.completion.debugUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={run.completion.debugUrl}
+                  >
+                    ▶ Test the changes ({run.completion.debugUrl})
+                  </a>
+                </p>
+              )}
             </>
           )}
           <textarea

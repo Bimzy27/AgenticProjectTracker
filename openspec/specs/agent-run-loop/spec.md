@@ -66,11 +66,17 @@ When the agent reports a question requiring direction, the system SHALL escalate
 
 The system SHALL accept a run as complete only when the agent's status block reports complete with a summary and a passing quality-gate result; a complete report without a passing gate SHALL be treated as blocked.
 Completed runs SHALL move the task to review, presenting the completion summary and a link to the full transcript, and the user SHALL either accept (task done) or send back with feedback (task re-queued, feedback included in the next briefing).
+The briefing SHALL instruct the agent to include, when able, an http(s) link to test the changes in a debug environment with its completion report; when a well-formed link is reported, the review presentation (task review and inbox review item) SHALL surface it so the user can try the changes directly, and links that are not well-formed http(s) URLs SHALL be dropped rather than rendered.
 
 #### Scenario: Run completes with passing gate
 
 - **WHEN** the agent reports complete with a passing quality-gate result
 - **THEN** the task moves to review showing the completion summary
+
+#### Scenario: Completion includes a debug testing link
+
+- **WHEN** the agent reports complete with a passing gate and a debug environment link
+- **THEN** the review view and the inbox review item show the link to test the changes
 
 #### Scenario: Completion claim without passing gate
 
