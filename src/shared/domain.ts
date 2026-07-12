@@ -229,6 +229,8 @@ export interface RunStatusReport {
   gateSummary: string | null
   /** For complete reports: http(s) link to test the changes in a debug environment, when the agent could provide one. */
   debugUrl: string | null
+  /** For complete reports: http(s) link to the branch or pull request holding the changes, when the agent delivered to one. */
+  changesUrl: string | null
 }
 
 export type RunState = 'active' | 'needs-input' | 'review' | 'done' | 'failed' | 'interrupted'
@@ -249,6 +251,8 @@ export interface RunCompletion {
   gateSummary: string | null
   /** Link to test the changes in a debug environment; null when the agent had nothing to link. */
   debugUrl: string | null
+  /** Link to the branch or pull request holding the changes; null when the agent had nothing to link. */
+  changesUrl: string | null
   at: string
 }
 
@@ -286,6 +290,12 @@ export interface RunRecord {
   stepsUsed: number
   /** Total tokens consumed across all turns (input + output + cache reads/writes). */
   tokensUsed: number
+  /**
+   * Distinct project-relative paths the run changed through file-editing tools
+   * (Edit/Write/NotebookEdit). An approximation: changes made via shell
+   * commands are not counted.
+   */
+  filesChanged: string[]
   completion: RunCompletion | null
   /** False when the workspace quality-gate skills were missing at delegation. */
   workflowVerified: boolean
@@ -392,6 +402,8 @@ export interface InboxItem {
   message: string
   /** For review items: link to test the changes in a debug environment, when the agent provided one. */
   debugUrl: string | null
+  /** For review items: link to the branch or pull request holding the changes, when the agent provided one. */
+  changesUrl: string | null
   at: string
 }
 

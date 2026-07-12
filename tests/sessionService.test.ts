@@ -220,7 +220,7 @@ describe('SessionService', () => {
     })
     await settle()
 
-    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Working on it.', 2000)
+    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Working on it.', 2000, [])
     expect(observer.stateChanged).toHaveBeenCalledWith(summary.id, 'awaiting-input')
     expect(service.listSessions(projectId)[0]).toMatchObject({ taskId: 't1', taskTitle: 'Add login' })
     expect(service.sdkSessionIdFor(summary.id)).toBe('sdk-9')
@@ -233,6 +233,71 @@ describe('SessionService', () => {
     await settle()
     expect(observer.closed).toHaveBeenCalledWith(summary.id, null)
     expect(service.isSessionAlive(summary.id)).toBe(false)
+  })
+
+  it('reports the files a turn changed through file-editing tools, project-relative and deduped', async () => {
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    const summary = service.startOwnedSession(
+      projectId,
+      'the briefing',
+      'acceptEdits',
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
+      observer
+    )
+
+    currentQuery.emit({
+      type: 'assistant',
+      session_id: 'sdk-9',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'u1',
+            name: 'Edit',
+            input: { file_path: join(projectPath, 'src', 'a.ts') }
+          },
+          {
+            type: 'tool_use',
+            id: 'u2',
+            name: 'Write',
+            input: { file_path: join(projectPath, 'src', 'a.ts') }
+          },
+          {
+            type: 'tool_use',
+            id: 'u3',
+            name: 'NotebookEdit',
+            input: { notebook_path: join(projectPath, 'nb.ipynb') }
+          },
+          // Non-editing tools and malformed inputs must not count.
+          {
+            type: 'tool_use',
+            id: 'u4',
+            name: 'Read',
+            input: { file_path: join(projectPath, 'read-only.ts') }
+          },
+          { type: 'tool_use', id: 'u5', name: 'Edit', input: {} },
+          { type: 'text', text: 'Edited things.' }
+        ]
+      }
+    })
+    currentQuery.emit({ type: 'result', session_id: 'sdk-9' })
+    await settle()
+
+    expect(observer.turnCompleted).toHaveBeenCalledWith(summary.id, 'Edited things.', 0, [
+      'src/a.ts',
+      'nb.ipynb'
+    ])
+
+    // The next turn starts from a clean slate.
+    service.sendToSession(summary.id, 'continue')
+    currentQuery.emit({
+      type: 'assistant',
+      session_id: 'sdk-9',
+      message: { content: [{ type: 'text', text: 'No edits this turn.' }] }
+    })
+    currentQuery.emit({ type: 'result', session_id: 'sdk-9' })
+    await settle()
+    expect(observer.turnCompleted).toHaveBeenLastCalledWith(summary.id, 'No edits this turn.', 0, [])
   })
 
   it('resumes an owned session by SDK session id', () => {

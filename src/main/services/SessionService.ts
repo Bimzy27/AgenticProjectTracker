@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { PermissionMode, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
@@ -44,9 +44,10 @@ export interface RunSessionObserver {
   /**
    * The agent's turn ended (SDK result message); text is the turn's assistant
    * output and turnTokens the tokens that turn consumed (usage on the result
-   * message is per-turn, verified against the live CLI).
+   * message is per-turn, verified against the live CLI). changedFiles holds
+   * the project-relative paths the turn's file-editing tool calls touched.
    */
-  turnCompleted(sessionId: string, assistantText: string, turnTokens: number): void
+  turnCompleted(sessionId: string, assistantText: string, turnTokens: number, changedFiles: string[]): void
   stateChanged(sessionId: string, state: SessionState): void
   /** The SDK stream ended; error is null on a clean end. */
   closed(sessionId: string, error: string | null): void
@@ -75,6 +76,8 @@ class ManagedSession {
   private closed = false
   /** Assistant text accumulated within the current turn, for the observer. */
   private turnText: string[] = []
+  /** Files touched by the current turn's file-editing tool calls, for the observer. */
+  private turnChangedFiles = new Set<string>()
   private lastNotifiedState: SessionState | null = null
   private streamError: string | null = null
 
@@ -122,6 +125,7 @@ class ManagedSession {
     this.pushUserMessage(message)
     this.state = 'running'
     this.turnText = []
+    this.turnChangedFiles.clear()
     this.touch([{ kind: 'user', text: message, at: new Date().toISOString() }])
   }
 
@@ -217,6 +221,8 @@ class ManagedSession {
           newItems.push({ kind: 'assistant', text: part.text, at })
           this.turnText.push(part.text)
         } else if (part.type === 'tool_use') {
+          const changedFile = changedFilePath(part.name, part.input)
+          if (changedFile) this.turnChangedFiles.add(relativizePath(this.cwd, changedFile))
           newItems.push({
             kind: 'tool',
             name: part.name,
@@ -234,8 +240,10 @@ class ManagedSession {
     this.touch(newItems)
     if (turnEnded) {
       const assistantText = this.turnText.join('\n\n')
+      const changedFiles = [...this.turnChangedFiles]
       this.turnText = []
-      this.observer?.turnCompleted(this.localId, assistantText, turnTokens)
+      this.turnChangedFiles.clear()
+      this.observer?.turnCompleted(this.localId, assistantText, turnTokens, changedFiles)
     }
   }
 
@@ -540,6 +548,33 @@ function usageTotal(message: SDKMessage): number {
     if (typeof value === 'number') total += value
   }
   return total
+}
+
+/** SDK tools that change a file, mapped to the input key holding its path. */
+const FILE_EDIT_TOOL_PATH_KEYS: Record<string, string> = {
+  Edit: 'file_path',
+  MultiEdit: 'file_path',
+  Write: 'file_path',
+  NotebookEdit: 'notebook_path'
+}
+
+/** Path a tool_use changes, or null when the tool does not edit files (or the input is malformed). */
+function changedFilePath(toolName: string, input: unknown): string | null {
+  const pathKey = FILE_EDIT_TOOL_PATH_KEYS[toolName]
+  if (!pathKey || typeof input !== 'object' || input === null) return null
+  const value = (input as Record<string, unknown>)[pathKey]
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/**
+ * Normalize a changed-file path for display: relative to the project root with
+ * forward slashes; paths outside the project stay absolute.
+ */
+function relativizePath(cwd: string, filePath: string): string {
+  const resolved = resolve(cwd, filePath)
+  const rel = relative(cwd, resolved)
+  const display = rel.startsWith('..') || isAbsolute(rel) ? resolved : rel
+  return display.replaceAll('\\', '/')
 }
 
 function truncate(text: string, max = 120): string {

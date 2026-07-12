@@ -77,8 +77,8 @@ class FakeSessions implements RunSessionPort {
     return this.sessions[this.sessions.length - 1]
   }
 
-  turn(session: FakeSession, text: string, tokens = 0): void {
-    session.observer.turnCompleted(session.id, text, tokens)
+  turn(session: FakeSession, text: string, tokens = 0, changedFiles: string[] = []): void {
+    session.observer.turnCompleted(session.id, text, tokens, changedFiles)
   }
 
   kill(session: FakeSession, error: string | null): void {
@@ -139,22 +139,26 @@ describe('RunOrchestrator', () => {
     expect(session.mode).toBe('acceptEdits')
     expect(session.owner).toMatchObject({ taskId: task.id, taskTitle: 'Build login' })
 
-    sessions.turn(session, status('working', 'scaffolding the page'), 12_000)
+    sessions.turn(session, status('working', 'scaffolding the page'), 12_000, ['src/login.ts'])
     let run = orch.latestRun(task.id)!
     expect(run.progressNote).toBe('scaffolding the page')
     expect(run.stepsUsed).toBe(1)
     expect(run.tokensUsed).toBe(12_000)
+    expect(run.filesChanged).toEqual(['src/login.ts'])
     expect(run.workflowVerified).toBe(true)
 
-    sessions.turn(session, COMPLETE_OK, 8_000)
+    // Repeated edits stay distinct while new files accumulate across turns.
+    sessions.turn(session, COMPLETE_OK, 8_000, ['src/login.ts', 'src/login.test.ts'])
     run = orch.latestRun(task.id)!
     expect(run.state).toBe('review')
     expect(run.tokensUsed).toBe(20_000)
+    expect(run.filesChanged).toEqual(['src/login.ts', 'src/login.test.ts'])
     expect(run.completion).toMatchObject({
       summary: 'built it',
       gatePassed: true,
       gateSummary: 'patrol green',
-      debugUrl: null
+      debugUrl: null,
+      changesUrl: null
     })
     expect(tasks.getOrThrow(task.id).state).toBe('review')
 
@@ -163,7 +167,7 @@ describe('RunOrchestrator', () => {
     expect(orch.latestRun(task.id)!.state).toBe('done')
   })
 
-  it('stores the completion debug link and defaults it for records persisted before the field existed', () => {
+  it('stores the completion links and defaults fields missing from older persisted records', () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -172,21 +176,31 @@ describe('RunOrchestrator', () => {
       status(
         'complete',
         'built it',
-        ', "gatePassed": true, "gateSummary": "patrol green", "debugUrl": "http://localhost:5173/login"'
-      )
+        ', "gatePassed": true, "gateSummary": "patrol green", "debugUrl": "http://localhost:5173/login"' +
+          ', "changesUrl": "https://github.com/o/r/pull/7"'
+      ),
+      0,
+      ['src/login.ts']
     )
-    expect(orch.latestRun(task.id)!.completion!.debugUrl).toBe('http://localhost:5173/login')
+    const completed = orch.latestRun(task.id)!
+    expect(completed.completion!.debugUrl).toBe('http://localhost:5173/login')
+    expect(completed.completion!.changesUrl).toBe('https://github.com/o/r/pull/7')
 
-    // Strip the field from the persisted record to simulate a pre-debugUrl release.
+    // Strip the fields from the persisted record to simulate a release before they existed.
     const runsPath = join(userData, 'runs.json')
     const persisted = JSON.parse(readFileSync(runsPath, 'utf8'))
     delete persisted.runs[0].completion.debugUrl
+    delete persisted.runs[0].completion.changesUrl
+    delete persisted.runs[0].filesChanged
     writeFileSync(runsPath, JSON.stringify(persisted))
 
     const orch2 = new RunOrchestrator(userData, tasks, new FakeSessions(), sink as RunEventSink, {
       claudeHome
     })
-    expect(orch2.latestRun(task.id)!.completion!.debugUrl).toBeNull()
+    const reloaded = orch2.latestRun(task.id)!
+    expect(reloaded.completion!.debugUrl).toBeNull()
+    expect(reloaded.completion!.changesUrl).toBeNull()
+    expect(reloaded.filesChanged).toEqual([])
   })
 
   it('recovers from blocked reports with corrective nudges and succeeds', () => {

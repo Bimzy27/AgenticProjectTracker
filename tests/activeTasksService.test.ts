@@ -45,6 +45,7 @@ function run(taskId: string, progressNote: string | null, stepsUsed: number): Ru
     nudgesUsed: 0,
     stepsUsed,
     tokensUsed: 0,
+    filesChanged: [],
     completion: null,
     workflowVerified: true,
     events: [],

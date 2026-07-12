@@ -44,7 +44,7 @@ export function buildBriefing({ task, workflowVerified }: BriefingInput): string
       : '# Ways of working\n\nRun every quality check available in this project (typecheck, lint, tests) and fix failures until they pass before reporting the task complete. Report honestly; never report complete with failing checks.'
   )
   sections.push(
-    `# Status protocol\n\nEnd EVERY response with a fenced status block so the supervisor can track you. The format is:\n\n\`\`\`apt-status\n{ "state": "working", "note": "<one-line progress note>" }\n\`\`\`\n\nStates:\n- "working": still making progress; "note" says what you are doing.\n- "question": you need a decision or information only the user has; put the full question in "note". Use this sparingly - prefer solving problems yourself.\n- "blocked": you hit a failure you cannot resolve; "note" explains what failed and what you tried.\n- "complete": the task is done and verified. Include "gatePassed" (boolean: did the full quality gate pass?) and "gateSummary" (one line on how it was verified), e.g.\n\n\`\`\`apt-status\n{ "state": "complete", "note": "<what was built>", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests" }\n\`\`\`\n\nWhen you can make the completed changes testable in a debug environment (for example a dev server you started and left running, or a preview deployment), also include "debugUrl" with the http(s) link so the reviewer can try the changes directly. Only include a link you have verified is reachable; omit the field when there is nothing to link.\n\nThe block must be valid JSON. Never omit it.`
+    `# Status protocol\n\nEnd EVERY response with a fenced status block so the supervisor can track you. The format is:\n\n\`\`\`apt-status\n{ "state": "working", "note": "<one-line progress note>" }\n\`\`\`\n\nStates:\n- "working": still making progress; "note" says what you are doing.\n- "question": you need a decision or information only the user has; put the full question in "note". Use this sparingly - prefer solving problems yourself.\n- "blocked": you hit a failure you cannot resolve; "note" explains what failed and what you tried.\n- "complete": the task is done and verified. Include "gatePassed" (boolean: did the full quality gate pass?) and "gateSummary" (one line on how it was verified), e.g.\n\n\`\`\`apt-status\n{ "state": "complete", "note": "<what was built>", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests" }\n\`\`\`\n\nWhen you can make the completed changes testable in a debug environment (for example a dev server you started and left running, or a preview deployment), also include "debugUrl" with the http(s) link so the reviewer can try the changes directly. Only include a link you have verified is reachable; omit the field when there is nothing to link.\n\nWhen the changes were delivered on a branch or pull request, also include "changesUrl" with the http(s) link to that pull request (or branch comparison) so the reviewer can inspect the files changed during the task. Omit the field when the work never left the local working tree.\n\nThe block must be valid JSON. Never omit it.`
   )
   return sections.join('\n\n')
 }
@@ -97,16 +97,17 @@ function parseReportJson(raw: string): RunStatusReport | null {
     note: typeof record.note === 'string' ? record.note : '',
     gatePassed: typeof record.gatePassed === 'boolean' ? record.gatePassed : null,
     gateSummary: typeof record.gateSummary === 'string' ? record.gateSummary : null,
-    debugUrl: parseDebugUrl(record.debugUrl)
+    debugUrl: parseHttpUrl(record.debugUrl),
+    changesUrl: parseHttpUrl(record.changesUrl)
   }
 }
 
 /**
- * Accept a debug link only when it is a well-formed http(s) URL; anything else
- * (other schemes, prose, local paths) is dropped so the UI never renders an
- * unopenable or unsafe link.
+ * Accept a reported link (debugUrl/changesUrl) only when it is a well-formed
+ * http(s) URL; anything else (other schemes, prose, local paths) is dropped so
+ * the UI never renders an unopenable or unsafe link.
  */
-function parseDebugUrl(value: unknown): string | null {
+function parseHttpUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   let url: URL

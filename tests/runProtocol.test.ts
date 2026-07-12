@@ -59,7 +59,8 @@ describe('parseStatusBlock', () => {
       note: 'built it',
       gatePassed: true,
       gateSummary: 'patrol green',
-      debugUrl: null
+      debugUrl: null,
+      changesUrl: null
     })
 
     const missingGate = parseStatusBlock(block('{ "state": "complete", "note": "built it" }'))
@@ -68,7 +69,8 @@ describe('parseStatusBlock', () => {
       note: 'built it',
       gatePassed: null,
       gateSummary: null,
-      debugUrl: null
+      debugUrl: null,
+      changesUrl: null
     })
 
     const failingGate = parseStatusBlock(block('{ "state": "complete", "gatePassed": false }'))
@@ -100,6 +102,22 @@ describe('parseStatusBlock', () => {
       expect(report).toMatchObject({ state: 'complete', debugUrl: null })
     }
   })
+
+  it('accepts an http(s) changes link on complete reports', () => {
+    const report = parseStatusBlock(
+      block(
+        '{ "state": "complete", "note": "done", "gatePassed": true, "changesUrl": "https://github.com/o/r/pull/42" }'
+      )
+    )
+    expect(report).toMatchObject({ state: 'complete', changesUrl: 'https://github.com/o/r/pull/42' })
+  })
+
+  it('drops changes links that are not well-formed http(s) URLs', () => {
+    for (const bad of ['"feature/login"', '"git@github.com:o/r.git"', '"file:///C:/repo"', '42']) {
+      const report = parseStatusBlock(block(`{ "state": "complete", "note": "done", "changesUrl": ${bad} }`))
+      expect(report).toMatchObject({ state: 'complete', changesUrl: null })
+    }
+  })
 })
 
 describe('buildBriefing', () => {
@@ -124,6 +142,14 @@ describe('buildBriefing', () => {
       const briefing = buildBriefing({ task, workflowVerified })
       expect(briefing).toContain('"debugUrl"')
       expect(briefing).toContain('debug environment')
+    }
+  })
+
+  it('instructs the agent to link the branch or pull request holding the changes', () => {
+    for (const workflowVerified of [true, false]) {
+      const briefing = buildBriefing({ task, workflowVerified })
+      expect(briefing).toContain('"changesUrl"')
+      expect(briefing).toContain('pull request')
     }
   })
 

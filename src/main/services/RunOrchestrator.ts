@@ -284,6 +284,7 @@ export class RunOrchestrator {
       nudgesUsed: 0,
       stepsUsed: 0,
       tokensUsed: 0,
+      filesChanged: [],
       completion: null,
       workflowVerified,
       events: [
@@ -360,18 +361,26 @@ export class RunOrchestrator {
 
   private observerFor(run: RunRecord): RunSessionObserver {
     return {
-      turnCompleted: (_sessionId, assistantText, turnTokens) =>
-        this.onTurnCompleted(run, assistantText, turnTokens),
+      turnCompleted: (_sessionId, assistantText, turnTokens, changedFiles) =>
+        this.onTurnCompleted(run, assistantText, turnTokens, changedFiles),
       stateChanged: (_sessionId, state) => this.onStateChanged(run, state),
       closed: (_sessionId, error) => this.onSessionClosed(run, error)
     }
   }
 
-  private onTurnCompleted(run: RunRecord, assistantText: string, turnTokens: number): void {
+  private onTurnCompleted(
+    run: RunRecord,
+    assistantText: string,
+    turnTokens: number,
+    changedFiles: string[]
+  ): void {
     if (run.state !== 'active') return
     run.sdkSessionId = this.sessions.sdkSessionIdFor(run.sessionId) ?? run.sdkSessionId
     run.stepsUsed++
     run.tokensUsed += turnTokens
+    for (const file of changedFiles) {
+      if (!run.filesChanged.includes(file)) run.filesChanged.push(file)
+    }
     const task = this.tasks.get(run.taskId)
     if (!task) return
     if (run.stepsUsed > task.stepBudget) {
@@ -498,6 +507,7 @@ export class RunOrchestrator {
       gatePassed: true,
       gateSummary: report.gateSummary,
       debugUrl: report.debugUrl,
+      changesUrl: report.changesUrl,
       at: new Date().toISOString()
     }
     this.pushEvent(run, 'completed', report.note)
@@ -554,12 +564,19 @@ export class RunOrchestrator {
       return
     }
     const parsed = JSON.parse(raw) as RunsFile
-    // tokensUsed and completion.debugUrl were added after the first release;
-    // default them for older records.
+    // tokensUsed, filesChanged, and the completion links were added after the
+    // first release; default them for older records.
     this.runs = (Array.isArray(parsed.runs) ? parsed.runs : []).map((run) => ({
       ...run,
       tokensUsed: run.tokensUsed ?? 0,
-      completion: run.completion ? { ...run.completion, debugUrl: run.completion.debugUrl ?? null } : null
+      filesChanged: run.filesChanged ?? [],
+      completion: run.completion
+        ? {
+            ...run.completion,
+            debugUrl: run.completion.debugUrl ?? null,
+            changesUrl: run.completion.changesUrl ?? null
+          }
+        : null
     }))
   }
 

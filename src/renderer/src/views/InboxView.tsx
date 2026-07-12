@@ -87,6 +87,17 @@ function InboxCard({
         <span className="muted">{formatRelativeTime(item.at)}</span>
       </div>
       <pre className="inbox-card-message">{item.message}</pre>
+      {item.kind === 'review' && item.changesUrl && (
+        <a
+          className="inbox-card-debug-link"
+          href={item.changesUrl}
+          target="_blank"
+          rel="noreferrer"
+          title={item.changesUrl}
+        >
+          ⇄ View the changed files ({item.changesUrl})
+        </a>
+      )}
       {item.kind === 'review' && item.debugUrl && (
         <a
           className="inbox-card-debug-link"

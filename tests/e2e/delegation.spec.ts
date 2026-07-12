@@ -21,7 +21,7 @@ function statusBlock(state: string, note: string, extra = ''): string {
 }
 
 /** The fake agent (APT_FAKE_AGENT_SCRIPT seam) replays these turns, one per user message. */
-function scriptAgent(...turns: string[]): void {
+function scriptAgent(...turns: Array<string | { text: string; files?: string[] }>): void {
   writeFileSync(scriptPath, JSON.stringify({ turns }))
 }
 
@@ -71,12 +71,16 @@ test('set up a project for delegation', async () => {
 test('delegated task escalates a question to the inbox, resumes on answer, and passes review', async () => {
   scriptAgent(
     `I looked at the repo and have a question.\n${statusBlock('question', 'Should the greeting be formal or casual?')}`,
-    `Done.\n${statusBlock(
-      'complete',
-      'Added the casual greeting and verified it',
-      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"' +
-        ', "debugUrl": "http://localhost:5173/greeting"'
-    )}`
+    {
+      text: `Done.\n${statusBlock(
+        'complete',
+        'Added the casual greeting and verified it',
+        ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"' +
+          ', "debugUrl": "http://localhost:5173/greeting"' +
+          ', "changesUrl": "https://github.com/example/demo/pull/12"'
+      )}`,
+      files: ['src/greeting.ts', 'src/greeting.test.ts']
+    }
   )
 
   // Create the task from the project's Tasks tab.
@@ -105,13 +109,16 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await page.locator('.inbox-card').getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('.inbox-card .badge.inbox-review')).toBeVisible()
   await expect(page.getByText('Added the casual greeting and verified it')).toBeVisible()
-  // The completion's debug link is offered right on the inbox card.
+  // The completion's debug and changed-files links are offered right on the inbox card.
   await expect(page.locator('.inbox-card').getByRole('link', { name: /Test the changes/ })).toHaveAttribute(
     'href',
     'http://localhost:5173/greeting'
   )
+  await expect(
+    page.locator('.inbox-card').getByRole('link', { name: /View the changed files/ })
+  ).toHaveAttribute('href', 'https://github.com/example/demo/pull/12')
 
-  // Review from the task detail: completion summary, gate result, debug link, accept.
+  // Review from the task detail: completion summary, gate result, links, accept.
   await page.locator('.inbox-card').getByRole('button', { name: 'Open task' }).click()
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
   await expect(page.getByText('patrol green: typecheck, lint, tests')).toBeVisible()
@@ -119,8 +126,15 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
     'href',
     'http://localhost:5173/greeting'
   )
+  await expect(
+    page.locator('.review-panel').getByRole('link', { name: /View the changed files/ })
+  ).toHaveAttribute('href', 'https://github.com/example/demo/pull/12')
   // Two fake-agent turns at 125 tokens each.
   await expect(page.getByText('250 tokens')).toBeVisible()
+  // The completion turn edited two files through the Edit tool.
+  const filesLabel = page.getByText('2 files changed')
+  await expect(filesLabel).toBeVisible()
+  await expect(filesLabel).toHaveAttribute('title', /src\/greeting\.ts/)
   await page.getByRole('button', { name: '✓ Accept' }).click()
   await expect(page.locator('.task-row').getByText('done')).toBeVisible()
   await expect(page.locator('.attention-count')).toHaveCount(0)

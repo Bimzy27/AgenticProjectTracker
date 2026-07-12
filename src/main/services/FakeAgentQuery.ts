@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryFn } from './SessionService'
 
+/** One scripted turn: plain text, or text plus files the turn "edits" via Edit tool calls. */
+type FakeTurn = string | { text: string; files?: string[] }
+
 interface FakeScript {
   /** Scripted assistant responses; each user message consumes the next turn. */
-  turns: string[]
+  turns: FakeTurn[]
 }
 
 const FALLBACK_TURN =
@@ -28,14 +31,25 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
       if (typeof args.prompt === 'string') return
       for await (const userMessage of args.prompt) {
         void userMessage
-        const text = script.turns[turn] ?? FALLBACK_TURN
+        const scripted = script.turns[turn] ?? FALLBACK_TURN
+        const { text, files = [] } = typeof scripted === 'string' ? { text: scripted } : scripted
         turn++
         // Yield to the event loop so transcript events interleave like a real stream.
         await new Promise((resolve) => setTimeout(resolve, 25))
         yield {
           type: 'assistant',
           session_id: sessionId,
-          message: { content: [{ type: 'text', text }] }
+          message: {
+            content: [
+              ...files.map((filePath) => ({
+                type: 'tool_use',
+                id: `fake-tool-${turn}-${filePath}`,
+                name: 'Edit',
+                input: { file_path: filePath }
+              })),
+              { type: 'text', text }
+            ]
+          }
         }
         yield {
           type: 'result',

@@ -42,6 +42,7 @@ export class InboxService {
         sessionId: session.id,
         message: tool ? `The agent wants to use: ${tool}` : 'The agent is waiting for tool permission',
         debugUrl: null,
+        changesUrl: null,
         at: session.lastActivityAt ?? new Date().toISOString()
       })
     }
@@ -68,6 +69,7 @@ export class InboxService {
         kind: escalation.kind,
         message: escalation.kind === 'question' ? escalation.message : history + escalation.message,
         debugUrl: null,
+        changesUrl: null,
         at: escalation.at
       }
     }
@@ -78,6 +80,7 @@ export class InboxService {
         kind: 'review',
         message: run.completion.summary,
         debugUrl: run.completion.debugUrl,
+        changesUrl: run.completion.changesUrl,
         at: run.completion.at
       }
     }

@@ -333,6 +333,18 @@ function TaskActions({
                 {run.completion.gateSummary ? ` · ${run.completion.gateSummary}` : ''}
                 {!run.workflowVerified && ' · workspace workflow was not detected on this machine'}
               </p>
+              {run.completion.changesUrl && (
+                <p>
+                  <a
+                    href={run.completion.changesUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={run.completion.changesUrl}
+                  >
+                    ⇄ View the changed files ({run.completion.changesUrl})
+                  </a>
+                </p>
+              )}
               {run.completion.debugUrl && (
                 <p>
                   <a
@@ -397,6 +409,15 @@ function RunPanel({
           </span>
           <span title={`${run.tokensUsed.toLocaleString()} tokens consumed by this run`}>
             {formatTokens(run.tokensUsed)} tokens
+          </span>
+          <span
+            title={
+              run.filesChanged.length > 0
+                ? `Files changed by this run:\n${run.filesChanged.join('\n')}`
+                : 'No file changes recorded for this run'
+            }
+          >
+            {run.filesChanged.length} {run.filesChanged.length === 1 ? 'file' : 'files'} changed
           </span>
           {run.sessionId && (
             <button className="stat linkish" onClick={() => onOpenTranscript(run.sessionId)}>
