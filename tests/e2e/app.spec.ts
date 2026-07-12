@@ -179,6 +179,17 @@ test('pipelines tab explains the missing GitHub setup instead of erroring', asyn
   await expect(page.getByText(/Link a GitHub repo|needs a GitHub token/)).toBeVisible()
 })
 
+test('release tab previews the next release from local git history', async () => {
+  await page.getByRole('button', { name: 'Release', exact: true }).click()
+  // No tags and no package.json in the fixture repo: first release falls back to v0.1.0.
+  await expect(page.locator('.badge.release-version')).toHaveText('v0.1.0')
+  await expect(page.getByText('No release has been published yet.')).toBeVisible()
+  await expect(page.locator('.release-commits').getByText('initial')).toBeVisible()
+  await expect(page.getByRole('button', { name: '🚀 Publish release' })).toBeEnabled()
+  await expect(page.getByText(/uncommitted changes/)).toBeVisible()
+  await expect(page.getByText('No tasks were completed since the last release.')).toBeVisible()
+})
+
 test('settings shows the not-configured GitHub auth state', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
   await expect(page.getByText(/Status: not configured/)).toBeVisible()

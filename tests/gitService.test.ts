@@ -82,6 +82,31 @@ describe('GitService against a fixture repository', () => {
     expect(refs.branches).toContain('main')
     expect(refs.branches).toContain('feature')
   })
+
+  it('lists commits newest first, optionally bounded by a ref', async () => {
+    const all = await service.commitsSince(repo, null)
+    expect(all.map((c) => c.subject)).toEqual(['change a', 'initial'])
+    expect(all[0].sha).toMatch(/^[0-9a-f]{40}$/)
+    expect(all[0].author).toBe('Test')
+    expect(Number.isFinite(Date.parse(all[0].at))).toBe(true)
+
+    git(repo, 'tag', 'v0.0.1', 'main')
+    expect((await service.commitsSince(repo, 'v0.0.1')).map((c) => c.subject)).toEqual(['change a'])
+    // HEAD..HEAD is empty: everything reachable has shipped.
+    expect(await service.commitsSince(repo, 'feature')).toEqual([])
+  })
+
+  it('resolves the committer timestamp of a ref', async () => {
+    const at = await service.commitTimestamp(repo, 'main')
+    expect(Number.isFinite(Date.parse(at))).toBe(true)
+  })
+
+  it('returns no commits for a repository without a HEAD', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'apt-empty-'))
+    git(empty, 'init', '-b', 'main')
+    expect(await service.commitsSince(empty, null)).toEqual([])
+    rmSync(empty, { recursive: true, force: true })
+  })
 })
 
 describe('parseGithubUrl', () => {

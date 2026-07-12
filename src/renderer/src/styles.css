@@ -826,6 +826,54 @@ tr.line-del,
   max-height: 200px;
   overflow-y: auto;
 }
+/* Release */
+.release-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.release-next-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.release-next-header h2 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.badge.release-version {
+  color: var(--accent);
+  border-color: var(--accent);
+  font-size: 13px;
+}
+.release-publish-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.release-dirty-warning {
+  margin-top: 8px;
+  color: var(--warning);
+}
+.release-commits .release-commit-sha {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.release-task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .traffic-charts {
   display: flex;
   gap: 20px;

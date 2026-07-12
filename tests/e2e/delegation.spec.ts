@@ -166,6 +166,38 @@ test('exhausted recovery escalates to the inbox and can be failed by the user', 
   await expect(page.locator('.task-row').getByText('failed', { exact: true })).toBeVisible()
 })
 
+test('publishing a release delegates a publish task that completes into review', async () => {
+  scriptAgent(
+    `Published.\n${statusBlock(
+      'complete',
+      'Published v0.1.0 with the installer attached',
+      ', "gatePassed": true, "gateSummary": "release workflow green"'
+    )}`
+  )
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  await page.getByRole('button', { name: 'Release', exact: true }).click()
+  await expect(page.locator('.badge.release-version')).toHaveText('v0.1.0')
+  // The task accepted in the earlier flow is credited to this release.
+  await expect(page.locator('.release-task-list').getByText('Greeting feature')).toBeVisible()
+
+  // Publish: a delegated task is created and the view lands on its detail.
+  await page.getByRole('button', { name: '🚀 Publish release' }).click()
+  await expect(page.getByRole('heading', { name: 'Publish release v0.1.0' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  await expect(page.getByText('Published v0.1.0 with the installer attached').first()).toBeVisible()
+
+  // While the publish task is open, the release tab offers it instead of a second publish.
+  await page.getByRole('button', { name: 'Release', exact: true }).click()
+  await expect(page.getByText(/Publishing is in flight/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '🚀 Publish release' })).toHaveCount(0)
+
+  // Accept the reviewed publish task from its detail.
+  await page.getByRole('button', { name: 'Open publish task →' }).click()
+  await page.getByRole('button', { name: '✓ Accept' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+})
+
 test('a running task can be stopped manually and moves to failed', async () => {
   scriptAgent(`On it.\n${statusBlock('working', 'reading the codebase')}`)
 

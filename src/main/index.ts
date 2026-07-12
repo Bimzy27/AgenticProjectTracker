@@ -13,6 +13,7 @@ import { InboxService } from './services/InboxService'
 import { PipelineService } from './services/PipelineService'
 import { ProjectService } from './services/ProjectService'
 import { ProjectStore } from './services/ProjectStore'
+import { ReleaseService } from './services/ReleaseService'
 import { RunOrchestrator } from './services/RunOrchestrator'
 import { SessionService } from './services/SessionService'
 import type { QueryFn } from './services/SessionService'
@@ -126,6 +127,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   )
   sessions.setAttributionLookup((sdkSessionId) => orchestrator.attributionFor(sdkSessionId))
   inbox = new InboxService({ projects: store, tasks, runs: orchestrator, sessions })
+  const release = new ReleaseService(git, tasks)
 
   const tokens = new TokenStore(userDataDir, {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -202,6 +204,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     sessions,
     tasks,
     orchestrator,
+    release,
     inbox,
     pipelines,
     analytics,

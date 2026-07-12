@@ -15,6 +15,7 @@ import type { InboxService } from './services/InboxService'
 import type { PipelineService } from './services/PipelineService'
 import type { ProjectService } from './services/ProjectService'
 import type { ProjectStore } from './services/ProjectStore'
+import type { ReleaseService } from './services/ReleaseService'
 import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
 import type { TaskService } from './services/TaskService'
@@ -28,6 +29,7 @@ export interface ApiDeps {
   sessions: SessionService
   tasks: TaskService
   orchestrator: RunOrchestrator
+  release: ReleaseService
   inbox: InboxService
   pipelines: PipelineService
   analytics: AnalyticsService
@@ -128,6 +130,13 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     acceptTask: async (_projectId: string, taskId: string) => deps.orchestrator.accept(taskId),
     sendBackTask: async (_projectId: string, taskId: string, feedback: string) =>
       deps.orchestrator.sendBack(taskId, feedback),
+
+    // Release publishing
+    getReleasePreview: async (projectId: string) => deps.release.getPreview(deps.store.getOrThrow(projectId)),
+    publishRelease: async (projectId: string) => {
+      const task = await deps.release.createPublishTask(deps.store.getOrThrow(projectId))
+      return deps.orchestrator.delegate(task.id)
+    },
 
     // Attention inbox
     listInbox: async () => deps.inbox.list(),

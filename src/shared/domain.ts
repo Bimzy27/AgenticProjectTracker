@@ -294,6 +294,59 @@ export interface RunRecord {
   endedAt: string | null
 }
 
+// ---------- Release publishing ----------
+
+/** One commit that would ship in the next release. */
+export interface ReleaseCommit {
+  sha: string
+  /** First line of the commit message. */
+  subject: string
+  author: string
+  /** ISO author date of the commit. */
+  at: string
+}
+
+/** A backlog task completed since the last release, credited to the next one. */
+export interface ReleaseTaskSummary {
+  taskId: string
+  title: string
+  /** ISO timestamp of the task's transition to done. */
+  completedAt: string
+}
+
+/** Semver bump implied by the commits waiting to ship. */
+export type ReleaseBump = 'major' | 'minor' | 'patch'
+
+/** The publish task currently driving a release, when one is in flight. */
+export interface ActivePublishTask {
+  taskId: string
+  title: string
+  state: TaskState
+}
+
+/**
+ * What the next release would contain, derived from local git history and the
+ * task backlog. `nextVersion` is a suggestion computed from conventional-commit
+ * subjects; the publishing agent makes the final call.
+ */
+export interface ReleasePreview {
+  projectId: string
+  /** Newest semver release tag (vX.Y.Z or X.Y.Z), or null before the first release. */
+  lastTag: string | null
+  /** ISO committer date of the commit `lastTag` points at; null before the first release. */
+  lastTagAt: string | null
+  /** Suggested tag for the next release, e.g. "v0.3.0". */
+  nextVersion: string
+  /** Bump kind behind the suggestion. */
+  bump: ReleaseBump
+  /** Commits since `lastTag` (entire history before the first release), newest first. */
+  commits: ReleaseCommit[]
+  /** Tasks completed after the last release was tagged, newest first. */
+  completedTasks: ReleaseTaskSummary[]
+  /** Publish task currently in flight for this project, or null. */
+  activePublishTask: ActivePublishTask | null
+}
+
 // ---------- Attention inbox ----------
 
 export type InboxItemKind =

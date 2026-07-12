@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 import { simpleGit } from 'simple-git'
 import type { SimpleGit } from 'simple-git'
-import type { DiffFile, RepoRefs, WorkingTreeArea } from '@shared/domain'
+import type { DiffFile, ReleaseCommit, RepoRefs, WorkingTreeArea } from '@shared/domain'
 import { parseUnifiedDiff, syntheticAddedFile } from '../git/parseDiff'
 
 const DIFF_ARGS = ['--no-color', '--no-ext-diff', '-M']
@@ -90,6 +90,40 @@ export class GitService {
       branches: branchSummary.all,
       tags: tags.all
     }
+  }
+
+  /** ISO committer date of the commit `ref` resolves to. Rejects for unknown refs. */
+  async commitTimestamp(repoPath: string, ref: string): Promise<string> {
+    const raw = await this.git(repoPath).raw(['log', '-1', '--format=%cI', ref])
+    return raw.trim()
+  }
+
+  /**
+   * Commits reachable from HEAD but not from `sinceRef` (the entire history
+   * when null), newest first. An unborn HEAD (empty repository) yields [].
+   */
+  async commitsSince(repoPath: string, sinceRef: string | null): Promise<ReleaseCommit[]> {
+    // Unit separator keeps the fields unambiguous for any commit subject.
+    const SEP = String.fromCharCode(0x1f)
+    let raw: string
+    try {
+      raw = await this.git(repoPath).raw([
+        'log',
+        `--format=%H${SEP}%an${SEP}%aI${SEP}%s`,
+        sinceRef ? `${sinceRef}..HEAD` : 'HEAD'
+      ])
+    } catch {
+      // No commits yet (unborn HEAD): nothing has shipped and nothing is pending.
+      return []
+    }
+    const commits: ReleaseCommit[] = []
+    for (const line of raw.split('\n')) {
+      const [sha, author, at, subject] = line.split(SEP)
+      if (sha && author !== undefined && at !== undefined && subject !== undefined) {
+        commits.push({ sha, author, at, subject })
+      }
+    }
+    return commits
   }
 
   private async defaultBranch(git: SimpleGit, localBranches: string[]): Promise<string | null> {

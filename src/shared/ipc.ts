@@ -16,6 +16,7 @@ import type {
   RateLimitState,
   RefDiff,
   ReleaseInfo,
+  ReleasePreview,
   RepoRefs,
   RunRecord,
   SessionCurationPatch,
@@ -86,6 +87,19 @@ export interface TrackerApi {
   /** Re-queue a reviewed task with feedback for the next briefing. */
   sendBackTask(projectId: string, taskId: string, feedback: string): Promise<void>
 
+  // Release publishing
+  /**
+   * What the next release would ship: commits and completed tasks since the
+   * last semver release tag, plus a suggested next version.
+   */
+  getReleasePreview(projectId: string): Promise<ReleasePreview>
+  /**
+   * Create a publish task for the next release and delegate it to an agent
+   * immediately. Rejects when a publish task is already in flight for the
+   * project or when there is nothing to release.
+   */
+  publishRelease(projectId: string): Promise<TaskDefinition>
+
   // Attention inbox
   listInbox(): Promise<InboxItem[]>
 
@@ -128,7 +142,7 @@ export interface TrackerEvents {
   /** Emitted when the user clicks a desktop notification; the UI should navigate. */
   navigate: {
     projectId: string
-    view: 'dashboard' | 'diffs' | 'sessions' | 'pipelines' | 'analytics' | 'tasks'
+    view: 'dashboard' | 'diffs' | 'sessions' | 'pipelines' | 'release' | 'analytics' | 'tasks'
   }
 }
 
