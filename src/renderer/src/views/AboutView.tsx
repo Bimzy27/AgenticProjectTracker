@@ -1,21 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AboutInfo, ClaudeUsageWindow } from '@shared/domain'
+import type { AboutInfo } from '@shared/domain'
 import { tracker } from '../tracker'
-
-/** Human label for a usage window reported by the account API. */
-function windowLabel(window: ClaudeUsageWindow): string {
-  if (window.kind === 'session') return 'Session (5-hour window)'
-  if (window.kind === 'weekly_all') return 'Weekly - all models'
-  if (window.scope) return `Weekly - ${window.scope}`
-  return window.kind
-}
-
-function formatReset(resetsAt: string | null): string {
-  if (!resetsAt) return ''
-  const date = new Date(resetsAt)
-  if (Number.isNaN(date.getTime())) return ''
-  return ` · resets ${date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}`
-}
+import { formatReset, windowLabel } from '../usage'
 
 export function AboutView(): React.JSX.Element {
   const [info, setInfo] = useState<AboutInfo | null>(null)

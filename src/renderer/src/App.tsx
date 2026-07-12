@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { InboxItem, Project } from '@shared/domain'
+import { SidebarUsage } from './components/SidebarUsage'
 import { tracker, useTrackerEvent } from './tracker'
 import { AboutView } from './views/AboutView'
 import { ActiveTasksView } from './views/ActiveTasksView'
@@ -109,6 +110,7 @@ export function App(): React.JSX.Element {
         >
           ⓘ About
         </button>
+        <SidebarUsage onOpen={() => setRoute({ view: 'about' })} />
       </nav>
       <main className="content">
         {route.view === 'dashboard' && (

@@ -96,6 +96,13 @@ test.beforeAll(async () => {
             scope: null
           },
           {
+            kind: 'weekly_all',
+            percent: 37,
+            severity: 'normal',
+            resets_at: '2026-07-14T09:00:00Z',
+            scope: null
+          },
+          {
             kind: 'weekly_scoped',
             percent: 61,
             severity: 'normal',
@@ -202,6 +209,29 @@ test('about shows the app version and the Claude usage budget', async () => {
   await expect(page.getByText('Plan: pro')).toBeVisible()
   await expect(page.getByText('Session (5-hour window)')).toBeVisible()
   await expect(page.getByText(/14% used/)).toBeVisible()
+  await expect(page.getByText('Weekly - all models')).toBeVisible()
+  await expect(page.getByText(/37% used/)).toBeVisible()
   await expect(page.getByText('Weekly - Fable')).toBeVisible()
   await expect(page.getByText(/61% used/)).toBeVisible()
+})
+
+test('sidebar usage bars summarize the Claude budget in a hover overlay', async () => {
+  // Leave the About view first so the assertions below only match the overlay.
+  await page.getByRole('button', { name: '⌂ Dashboard' }).click()
+  const bars = page.getByRole('button', { name: 'Claude usage' })
+  await expect(bars.locator('.usage-bar-track')).toHaveCount(3)
+  await bars.hover()
+  const tip = page.getByRole('tooltip')
+  await expect(tip.getByText('Claude usage · pro')).toBeVisible()
+  await expect(tip.getByText('Session (5-hour window)')).toBeVisible()
+  await expect(tip.getByText(/14% used/)).toBeVisible()
+  await expect(tip.getByText('Weekly - all models')).toBeVisible()
+  await expect(tip.getByText(/37% used/)).toBeVisible()
+  await expect(tip.getByText('Weekly - Fable')).toBeVisible()
+  await expect(tip.getByText(/61% used/)).toBeVisible()
+})
+
+test('clicking the sidebar usage bars opens the About view', async () => {
+  await page.getByRole('button', { name: 'Claude usage' }).click()
+  await expect(page.getByRole('heading', { name: 'About' })).toBeVisible()
 })
