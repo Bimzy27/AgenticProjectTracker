@@ -5,6 +5,10 @@ directories:
 files:
   - out/**
   - package.json
+# The Agent SDK spawns its native claude binary as a child process; executables
+# inside app.asar cannot be spawned, so ship the platform package unpacked.
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/**
 win:
   target:
     - nsis

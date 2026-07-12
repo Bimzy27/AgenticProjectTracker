@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import { BrowserWindow, Notification, app, dialog, safeStorage, shell } from 'electron'
 import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
@@ -13,12 +14,31 @@ import { ProjectService } from './services/ProjectService'
 import { ProjectStore } from './services/ProjectStore'
 import { RunOrchestrator } from './services/RunOrchestrator'
 import { SessionService } from './services/SessionService'
+import type { QueryFn } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
 import { TaskService } from './services/TaskService'
 import { TokenStore } from './services/TokenStore'
 import { Watchers } from './services/Watchers'
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * In packaged builds the SDK resolves its native claude binary inside
+ * app.asar, where it exists for fs but cannot be spawned as a process.
+ * electron-builder ships the platform package unpacked (asarUnpack), so point
+ * the SDK at the on-disk binary; in dev the SDK's own resolution is correct.
+ */
+function createPackagedQuery(): QueryFn | undefined {
+  if (!app.isPackaged) return undefined
+  const pathToClaudeCodeExecutable = join(
+    process.resourcesPath,
+    'app.asar.unpacked',
+    'node_modules',
+    `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`,
+    process.platform === 'win32' ? 'claude.exe' : 'claude'
+  )
+  return (props) => query({ ...props, options: { ...props.options, pathToClaudeCodeExecutable } })
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -77,7 +97,9 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
         emitTrackerEvent('transcript-appended', { projectId, sessionId, items })
     },
     // APT_FAKE_AGENT_SCRIPT is a test seam: a scripted agent instead of the real SDK.
-    process.env.APT_FAKE_AGENT_SCRIPT ? createFakeAgentQuery(process.env.APT_FAKE_AGENT_SCRIPT) : undefined
+    process.env.APT_FAKE_AGENT_SCRIPT
+      ? createFakeAgentQuery(process.env.APT_FAKE_AGENT_SCRIPT)
+      : createPackagedQuery()
   )
 
   const tasks = new TaskService(userDataDir, {
