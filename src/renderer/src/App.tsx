@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { InboxItem, Project } from '@shared/domain'
 import { tracker, useTrackerEvent } from './tracker'
+import { AboutView } from './views/AboutView'
 import { Dashboard } from './views/Dashboard'
 import { InboxView } from './views/InboxView'
 import { ProjectView } from './views/ProjectView'
@@ -10,6 +11,7 @@ import { SettingsView } from './views/SettingsView'
 export type Route =
   | { view: 'dashboard' }
   | { view: 'settings' }
+  | { view: 'about' }
   | { view: 'inbox' }
   | {
       view: 'project'
@@ -93,6 +95,12 @@ export function App(): React.JSX.Element {
         >
           ⚙ Settings
         </button>
+        <button
+          className={`nav-item ${route.view === 'about' ? 'active' : ''}`}
+          onClick={() => setRoute({ view: 'about' })}
+        >
+          ⓘ About
+        </button>
       </nav>
       <main className="content">
         {route.view === 'dashboard' && (
@@ -115,6 +123,7 @@ export function App(): React.JSX.Element {
           />
         )}
         {route.view === 'settings' && <SettingsView />}
+        {route.view === 'about' && <AboutView />}
         {route.view === 'project' &&
           (activeProject ? (
             <ProjectView

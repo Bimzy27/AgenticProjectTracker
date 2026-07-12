@@ -882,6 +882,32 @@ label.form-row {
   word-break: break-all;
 }
 
+/* About: Claude usage budget */
+.usage-window {
+  margin: 12px 0;
+}
+.usage-window-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.usage-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.usage-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+.usage-bar-warn {
+  background: var(--failure);
+}
+
 /* Modal */
 .modal-backdrop {
   position: fixed;

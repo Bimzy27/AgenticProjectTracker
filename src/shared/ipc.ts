@@ -3,6 +3,7 @@
 // the same interface for a future web deployment.
 
 import type {
+  AboutInfo,
   AddProjectInput,
   DirectoryInspection,
   EditorLaunchResult,
@@ -102,6 +103,14 @@ export interface TrackerApi {
   clearGithubToken(): Promise<void>
   /** Returns true when a token was found and imported from the gh CLI. */
   importGhCliToken(): Promise<boolean>
+
+  // About
+  /**
+   * App version plus the Claude usage budget of the account the Claude CLI is
+   * logged in with. Never rejects for usage problems: failures are reported
+   * in-band via `AboutInfo.usage.status`.
+   */
+  getAboutInfo(): Promise<AboutInfo>
 }
 
 /** Push events flowing from services to the UI. */

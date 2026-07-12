@@ -19,6 +19,7 @@ import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
 import type { TaskService } from './services/TaskService'
 import type { TokenStore } from './services/TokenStore'
+import type { UsageService } from './services/UsageService'
 
 export interface ApiDeps {
   store: ProjectStore
@@ -33,6 +34,9 @@ export interface ApiDeps {
   github: GithubClient
   tokens: TokenStore
   editor: EditorService
+  usage: UsageService
+  /** App version string, injected by the composition root (app.getVersion()). */
+  appVersion: string
   /** Desktop directory picker, injected by the composition root. */
   pickDirectory: () => Promise<string | null>
   /** Called after any registry mutation so watchers and pollers resync. */
@@ -140,6 +144,9 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     getGithubAuthState: async () => deps.tokens.getAuthState(),
     setGithubToken: async (token: string) => deps.tokens.setToken(token),
     clearGithubToken: async () => deps.tokens.clearToken(),
-    importGhCliToken: async () => deps.tokens.importFromGhCli()
+    importGhCliToken: async () => deps.tokens.importFromGhCli(),
+
+    // About
+    getAboutInfo: async () => ({ appVersion: deps.appVersion, usage: await deps.usage.getUsage() })
   }
 }

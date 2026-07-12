@@ -19,6 +19,7 @@ import type { QueryFn } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
 import { TaskService } from './services/TaskService'
 import { TokenStore } from './services/TokenStore'
+import { UsageService } from './services/UsageService'
 import { Watchers } from './services/Watchers'
 
 let mainWindow: BrowserWindow | null = null
@@ -144,6 +145,12 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   const analytics = new AnalyticsService(new GithubMetricsProvider(github))
   const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
 
+  // APT_USAGE_ENDPOINT is a test seam; undefined falls back to the real API.
+  const usage = new UsageService({
+    claudeHome: process.env.APT_CLAUDE_HOME,
+    endpoint: process.env.APT_USAGE_ENDPOINT
+  })
+
   const editor = new EditorService({
     // APT_TEST_EDITOR_CMD is a test seam: treat this executable as VS Code
     // so E2E runs never depend on (or launch) a real install.
@@ -201,6 +208,8 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     github,
     tokens,
     editor,
+    usage,
+    appVersion: app.getVersion(),
     pickDirectory: async () => {
       // Test seam: E2E tests cannot drive the native dialog.
       if (process.env.APT_TEST_PICK_DIR) return process.env.APT_TEST_PICK_DIR

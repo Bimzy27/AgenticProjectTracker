@@ -384,3 +384,44 @@ export interface TrafficMetrics {
   views: TrafficPoint[]
   clones: TrafficPoint[]
 }
+
+// ---------- About ----------
+
+/**
+ * One usage-limit window of the Claude account's budget (e.g. the 5-hour
+ * session window or a weekly window, possibly scoped to a model).
+ */
+export interface ClaudeUsageWindow {
+  /** Window identifier as reported by the account API, e.g. "session", "weekly_all", "weekly_scoped". */
+  kind: string
+  /** Percent of the window's budget consumed, 0-100. */
+  percent: number
+  /** Severity as reported by the account API, e.g. "normal" or "warning". */
+  severity: string
+  /** ISO timestamp at which the window resets, or null when unknown. */
+  resetsAt: string | null
+  /** Display name of the model the window is scoped to, or null for account-wide windows. */
+  scope: string | null
+}
+
+/**
+ * Claude usage-budget metrics for the account configured on this machine.
+ * `status` explains why `windows` may be empty: "not-logged-in" means no
+ * Claude CLI credentials were found, "error" means the usage API call failed.
+ */
+export interface ClaudeUsage {
+  status: 'ok' | 'not-logged-in' | 'error'
+  /** Subscription tier from the stored credentials (e.g. "pro"), when known. */
+  subscription: string | null
+  windows: ClaudeUsageWindow[]
+  /** Human-readable failure description when status is "error". */
+  error: string | null
+  /** ISO timestamp of when the usage data was read. */
+  fetchedAt: string
+}
+
+/** Data shown on the About view. */
+export interface AboutInfo {
+  appVersion: string
+  usage: ClaudeUsage
+}

@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, normalize } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
@@ -13,6 +16,8 @@ let repo: string
 let editorDir: string
 let editorCmd: string
 let editorLaunchFile: string
+let usageServer: Server
+let usageEndpoint: string
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
@@ -67,6 +72,43 @@ test.beforeAll(async () => {
     ].join('\n')
   )
 
+  // Fake Claude CLI credentials plus a stub usage API for the About view.
+  writeFileSync(
+    join(claudeHome, '.credentials.json'),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: 'e2e-fake-access-token', subscriptionType: 'pro' }
+    })
+  )
+  usageServer = createServer((req, res) => {
+    if (req.headers.authorization !== 'Bearer e2e-fake-access-token') {
+      res.writeHead(401).end()
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        limits: [
+          {
+            kind: 'session',
+            percent: 14,
+            severity: 'normal',
+            resets_at: '2026-07-12T10:00:00Z',
+            scope: null
+          },
+          {
+            kind: 'weekly_scoped',
+            percent: 61,
+            severity: 'normal',
+            resets_at: '2026-07-12T12:00:00Z',
+            scope: { model: { id: null, display_name: 'Fable' } }
+          }
+        ]
+      })
+    )
+  })
+  await new Promise<void>((resolve) => usageServer.listen(0, '127.0.0.1', resolve))
+  usageEndpoint = `http://127.0.0.1:${(usageServer.address() as AddressInfo).port}/api/oauth/usage`
+
   app = await electron.launch({
     args: ['.'],
     env: {
@@ -74,7 +116,8 @@ test.beforeAll(async () => {
       APT_USER_DATA_DIR: userData,
       APT_CLAUDE_HOME: claudeHome,
       APT_TEST_PICK_DIR: repo,
-      APT_TEST_EDITOR_CMD: editorCmd
+      APT_TEST_EDITOR_CMD: editorCmd,
+      APT_USAGE_ENDPOINT: usageEndpoint
     }
   })
   page = await app.firstWindow()
@@ -82,6 +125,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app?.close()
+  await new Promise<void>((resolve) => usageServer?.close(() => resolve()))
   for (const dir of [userData, claudeHome, repo, editorDir]) {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -138,4 +182,15 @@ test('pipelines tab explains the missing GitHub setup instead of erroring', asyn
 test('settings shows the not-configured GitHub auth state', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
   await expect(page.getByText(/Status: not configured/)).toBeVisible()
+})
+
+test('about shows the app version and the Claude usage budget', async () => {
+  await page.getByRole('button', { name: 'ⓘ About' }).click()
+  const version = JSON.parse(readFileSync('package.json', 'utf8')).version as string
+  await expect(page.getByText(`Version: ${version}`)).toBeVisible()
+  await expect(page.getByText('Plan: pro')).toBeVisible()
+  await expect(page.getByText('Session (5-hour window)')).toBeVisible()
+  await expect(page.getByText(/14% used/)).toBeVisible()
+  await expect(page.getByText('Weekly - Fable')).toBeVisible()
+  await expect(page.getByText(/61% used/)).toBeVisible()
 })
