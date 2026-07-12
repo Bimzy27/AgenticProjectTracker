@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { Project } from '@shared/domain'
 import { tracker } from '../tracker'
+import { ProjectLinksDialog } from '../components/ProjectLinksDialog'
 import { AnalyticsTab } from './AnalyticsTab'
 import { DiffsTab } from './DiffsTab'
 import { PipelinesTab } from './PipelinesTab'
@@ -38,6 +40,7 @@ export function ProjectView({
   onFocusTask,
   onFocusSession
 }: Props): React.JSX.Element {
+  const [editingLinks, setEditingLinks] = useState(false)
   return (
     <div className="project-view">
       <header className="view-header">
@@ -47,6 +50,27 @@ export function ProjectView({
             {project.path}
             {project.github ? ` · ${project.github.owner}/${project.github.repo}` : ''}
           </p>
+          <div className="project-links">
+            {project.links.map((link) => (
+              <a
+                key={`${link.label}\n${link.url}`}
+                className="chip project-link"
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                title={link.url}
+              >
+                {link.label} ↗
+              </a>
+            ))}
+            <button
+              className="project-links-edit"
+              title="Configure important links for this project"
+              onClick={() => setEditingLinks(true)}
+            >
+              {project.links.length > 0 ? '✎ Edit links' : '+ Add links'}
+            </button>
+          </div>
         </div>
         <button
           title="Open the repository root in VS Code"
@@ -76,6 +100,7 @@ export function ProjectView({
       {tab === 'pipelines' && <PipelinesTab project={project} />}
       {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
       {tab === 'analytics' && <AnalyticsTab project={project} />}
+      {editingLinks && <ProjectLinksDialog project={project} onClose={() => setEditingLinks(false)} />}
     </div>
   )
 }

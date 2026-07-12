@@ -67,6 +67,27 @@ Removing a project SHALL NOT modify the project's files on disk.
 - **WHEN** the user removes a project from the registry
 - **THEN** the project disappears from the dashboard and its files on disk are untouched
 
+### Requirement: Configure important links on a project
+
+The system SHALL allow the user to configure a list of important links (label plus absolute http(s) URL) per project, e.g. a Vercel dashboard or the hosted URL of the project's website.
+Configured links SHALL appear in the project view and open in the system browser.
+The system SHALL reject links without a label or with a URL that is not an absolute http(s) URL, and a rejected edit SHALL leave the stored links unchanged.
+
+#### Scenario: Adding an important link
+
+- **WHEN** the user adds a link with a label and an absolute http(s) URL to a project
+- **THEN** the link appears in the project view and clicking it opens the URL in the system browser
+
+#### Scenario: Invalid link URL
+
+- **WHEN** the user saves a link whose URL is not an absolute http(s) URL
+- **THEN** the system rejects the edit with an explanatory error and the previously stored links remain unchanged
+
+#### Scenario: Removing links
+
+- **WHEN** the user removes all links from a project
+- **THEN** the project view no longer shows any links, only the affordance to add them
+
 ### Requirement: Registry persists across restarts
 
 The system SHALL persist the project registry locally so that tracked projects survive app restarts.

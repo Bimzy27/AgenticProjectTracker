@@ -1403,3 +1403,47 @@ label.form-row {
   gap: 10px;
   font-size: 12px;
 }
+
+/* Project view: important links under the header */
+.project-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+a.project-link {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+a.project-link:hover {
+  text-decoration: none;
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+.project-links-edit {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.project-links-edit:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* Important-links dialog rows */
+.link-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.link-row-label {
+  flex: 1;
+  min-width: 0;
+}
+.link-row-url {
+  flex: 2;
+  min-width: 0;
+}

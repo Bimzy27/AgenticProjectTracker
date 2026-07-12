@@ -5,7 +5,15 @@ import { ActiveTasksService } from '../src/main/services/ActiveTasksService'
 let taskCounter = 0
 
 function project(id: string, name: string): Project {
-  return { id, name, path: `C:/repos/${id}`, tags: [], github: null, createdAt: '2026-07-01T00:00:00Z' }
+  return {
+    id,
+    name,
+    path: `C:/repos/${id}`,
+    tags: [],
+    github: null,
+    links: [],
+    createdAt: '2026-07-01T00:00:00Z'
+  }
 }
 
 function task(

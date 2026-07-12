@@ -8,6 +8,16 @@ export interface GithubRepoRef {
   repo: string
 }
 
+/**
+ * A user-configured quick link shown on the project view, e.g. a Vercel
+ * dashboard or the hosted URL of the project's website.
+ */
+export interface ProjectLink {
+  label: string
+  /** Absolute http(s) URL; opened in the system browser. */
+  url: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -15,6 +25,8 @@ export interface Project {
   path: string
   tags: string[]
   github: GithubRepoRef | null
+  /** Important links configured by the user, shown on the project view. */
+  links: ProjectLink[]
   createdAt: string
 }
 
@@ -29,6 +41,8 @@ export interface ProjectPatch {
   name?: string
   tags?: string[]
   github?: GithubRepoRef | null
+  /** Replace the project's important links (full-list semantics). */
+  links?: ProjectLink[]
   /** Relocate the project to a new directory. */
   path?: string
 }
