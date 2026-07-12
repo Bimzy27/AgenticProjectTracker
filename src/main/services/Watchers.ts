@@ -6,6 +6,26 @@ import type { SessionStorage } from './SessionStorage'
 
 const DEBOUNCE_MS = 500
 
+/**
+ * Paths the repo watcher must not visit. .git internals churn constantly
+ * (HEAD and index are enough to catch branch switches and staging) and
+ * node_modules is never diff-relevant. Asar archives must never be stat'd:
+ * in a packaged app Electron's patched fs opens the archive and caches the
+ * handle for the process lifetime, which locks the file and breaks builds
+ * running inside a watched repo (e.g. electron-builder output).
+ */
+export function repoWatchIgnored(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/')
+  if (/\/node_modules(\/|$)/.test(normalized)) return true
+  if (/\.asar$/i.test(normalized)) return true
+  const gitIdx = normalized.indexOf('/.git/')
+  if (gitIdx !== -1) {
+    const inner = normalized.slice(gitIdx + 6)
+    return inner !== 'HEAD' && inner !== 'index'
+  }
+  return false
+}
+
 export interface WatchEventSink {
   /** The working tree changed; diffs and status for this project are stale. */
   repoChanged(projectId: string): void
@@ -60,18 +80,7 @@ export class Watchers {
     if (this.repoWatchers.has(project.id) || !existsSync(project.path)) return
     const watcher = watch(project.path, {
       ignoreInitial: true,
-      // .git internals churn constantly; HEAD and index are enough to catch
-      // branch switches and staging. node_modules is never diff-relevant.
-      ignored: (path: string) => {
-        const normalized = path.replace(/\\/g, '/')
-        if (/\/node_modules(\/|$)/.test(normalized)) return true
-        const gitIdx = normalized.indexOf('/.git/')
-        if (gitIdx !== -1) {
-          const inner = normalized.slice(gitIdx + 6)
-          return inner !== 'HEAD' && inner !== 'index'
-        }
-        return false
-      }
+      ignored: repoWatchIgnored
     })
     watcher.on('all', () => this.debounce(`repo:${project.id}`, () => this.sink.repoChanged(project.id)))
     this.repoWatchers.set(project.id, watcher)

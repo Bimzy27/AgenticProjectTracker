@@ -97,6 +97,9 @@ export class GitService {
   }
 
   private readUntrackedFile(repoPath: string, relPath: string): DiffFile {
+    // Never open asar archives: in a packaged app Electron's patched fs
+    // caches the archive handle forever, locking the file on Windows.
+    if (/\.asar$/i.test(relPath)) return syntheticAddedFile(relPath, null)
     const abs = join(repoPath, relPath)
     try {
       const buf = readFileSync(abs)
