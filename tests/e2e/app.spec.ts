@@ -197,6 +197,25 @@ test('release tab previews the next release from local git history', async () =>
   await expect(page.getByText('No tasks were completed since the last release.')).toBeVisible()
 })
 
+test('release tab warns when work after the last tag sits uncommitted', async () => {
+  // Ship everything and tag it, then leave new work uncommitted: the state a
+  // repo is in when a completed task's changes were never committed.
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-m', 'feat: greet the world')
+  git(repo, 'tag', 'v0.4.0')
+  writeFileSync(join(repo, 'hello.ts'), 'export const greeting = "hello again"\n')
+
+  // Re-enter the tab for a deterministic fresh preview load.
+  await page.getByRole('button', { name: 'Diffs' }).click()
+  await page.getByRole('button', { name: 'Release', exact: true }).click()
+
+  await expect(page.locator('.badge.release-version')).toHaveText('v0.4.1')
+  await expect(page.getByText('Everything has shipped; there are no unreleased commits.')).toBeVisible()
+  await expect(page.getByRole('button', { name: '🚀 Publish release' })).toBeDisabled()
+  // The dirty tree is the missing release content; the tab must say so.
+  await expect(page.getByText(/uncommitted changes/)).toBeVisible()
+})
+
 test('settings shows the not-configured GitHub auth state', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
   await expect(page.getByText(/Status: not configured/)).toBeVisible()

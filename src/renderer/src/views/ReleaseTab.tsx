@@ -9,6 +9,16 @@ interface Props {
   onOpenTask: (taskId: string) => void
 }
 
+/** Tooltip for the publish button; explains why it is disabled when it is. */
+function publishButtonTitle(preview: ReleasePreview, status: ProjectStatusSummary | null): string {
+  if (preview.commits.length > 0) {
+    return `Delegate publishing ${preview.nextVersion} to an agent (runs in Auto mode)`
+  }
+  return status?.dirty
+    ? 'There are no unreleased commits; commit the pending working-tree changes so they can ship'
+    : 'Everything has shipped; there is nothing to release'
+}
+
 /**
  * The next release that should be published: pending commits, completed tasks,
  * a suggested version, and the button that delegates publishing to an agent.
@@ -96,11 +106,7 @@ export function ReleaseTab({ project, onOpenTask }: Props): React.JSX.Element {
             <button
               className="primary"
               disabled={publishing || preview.commits.length === 0}
-              title={
-                preview.commits.length === 0
-                  ? 'Everything has shipped; there is nothing to release'
-                  : `Delegate publishing ${preview.nextVersion} to an agent (runs in Auto mode)`
-              }
+              title={publishButtonTitle(preview, status)}
               onClick={publish}
             >
               🚀 Publish release
@@ -110,10 +116,13 @@ export function ReleaseTab({ project, onOpenTask }: Props): React.JSX.Element {
             </span>
           </div>
         )}
-        {status?.dirty && preview.commits.length > 0 && (
+        {status?.dirty && (
           <p className="muted release-dirty-warning">
-            ⚠ The working tree has uncommitted changes; the publishing agent will have to deal with them
-            before tagging.
+            {preview.commits.length === 0
+              ? '⚠ The working tree has uncommitted changes but no commits are waiting to ship; ' +
+                'completed work stays out of the release until it is committed.'
+              : '⚠ The working tree has uncommitted changes; the publishing agent will have to deal ' +
+                'with them before tagging.'}
           </p>
         )}
       </section>
