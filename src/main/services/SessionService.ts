@@ -86,6 +86,8 @@ class ManagedSession {
     readonly localId: string,
     private readonly cwd: string,
     mode: SessionPermissionMode,
+    /** Model alias or full id for the session; null inherits the CLI default. */
+    private readonly model: string | null,
     private readonly onChange: (session: ManagedSession, newItems: TranscriptItem[]) => void,
     private readonly queryFn: QueryFn
   ) {
@@ -99,6 +101,7 @@ class ManagedSession {
       options: {
         cwd: this.cwd,
         permissionMode: MODE_TO_SDK[this.mode],
+        model: this.model ?? undefined,
         resume: resumeSessionId,
         canUseTool: async (toolName, input) => {
           const allow = await new Promise<boolean>((resolve) => {
@@ -347,12 +350,13 @@ export class SessionService {
     projectId: string,
     prompt: string,
     mode: SessionPermissionMode,
+    model: string | null,
     owner: SessionOwner,
     observer: RunSessionObserver,
     resumeSessionId?: string
   ): SessionSummary {
     const project = this.projects.getOrThrow(projectId)
-    const session = this.createManaged(projectId, project.path, mode)
+    const session = this.createManaged(projectId, project.path, mode, model)
     session.owner = owner
     session.observer = observer
     session.start(prompt, resumeSessionId)
@@ -443,13 +447,19 @@ export class SessionService {
     return managedSession
   }
 
-  private createManaged(projectId: string, cwd: string, mode: SessionPermissionMode): ManagedSession {
+  private createManaged(
+    projectId: string,
+    cwd: string,
+    mode: SessionPermissionMode,
+    model: string | null = null
+  ): ManagedSession {
     const localId = `managed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const session = new ManagedSession(
       projectId,
       localId,
       cwd,
       mode,
+      model,
       (s, newItems) => {
         if (newItems.length > 0) this.sink.transcriptAppended(s.projectId, s.localId, newItems)
         this.sink.sessionUpdated(this.managedSummary(s))

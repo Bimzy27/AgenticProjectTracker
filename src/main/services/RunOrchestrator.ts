@@ -37,6 +37,7 @@ export interface RunSessionPort {
     projectId: string,
     prompt: string,
     mode: SessionPermissionMode,
+    model: string | null,
     owner: SessionOwner,
     observer: RunSessionObserver,
     resumeSessionId?: string
@@ -300,6 +301,7 @@ export class RunOrchestrator {
       task.projectId,
       briefing,
       task.mode,
+      task.model,
       { taskId: task.id, taskTitle: task.title, runId: run.id },
       this.observerFor(run)
     )
@@ -331,6 +333,7 @@ export class RunOrchestrator {
           run.projectId,
           message,
           task.mode,
+          task.model,
           owner,
           this.observerFor(run),
           run.sdkSessionId
@@ -346,6 +349,7 @@ export class RunOrchestrator {
           run.projectId,
           prompt,
           task.mode,
+          task.model,
           owner,
           this.observerFor(run)
         )

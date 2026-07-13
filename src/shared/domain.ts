@@ -182,6 +182,31 @@ export interface SessionCurationPatch {
 
 // ---------- Task backlog ----------
 
+/**
+ * A preset LLM model choice offered when configuring a task. `id` is what the
+ * Agent SDK receives: a stable alias ('opus', 'sonnet', 'haiku') that always
+ * resolves to the current generation of that tier, or null to inherit the
+ * Claude CLI's configured default model.
+ */
+export interface AgentModelPreset {
+  id: string | null
+  label: string
+  hint: string
+}
+
+export const AGENT_MODEL_PRESETS: readonly AgentModelPreset[] = [
+  { id: null, label: 'Default', hint: "Uses the Claude CLI's configured model" },
+  { id: 'opus', label: 'Opus', hint: 'Most capable; best for hard or long-running tasks' },
+  { id: 'sonnet', label: 'Sonnet', hint: 'Balanced speed, cost, and capability' },
+  { id: 'haiku', label: 'Haiku', hint: 'Fastest and cheapest; for simple tasks' }
+]
+
+/** Display label for a task's model: preset label, raw custom id, or 'Default'. */
+export function agentModelLabel(model: string | null): string {
+  const preset = AGENT_MODEL_PRESETS.find((p) => p.id === model)
+  return preset ? preset.label : (model ?? 'Default')
+}
+
 export type TaskState = 'draft' | 'queued' | 'running' | 'needs-input' | 'review' | 'done' | 'failed'
 
 export interface TaskTransition {
@@ -201,6 +226,11 @@ export interface TaskDefinition {
   order: number
   /** Permission mode for the run session; delegated work defaults to acceptEdits. */
   mode: SessionPermissionMode
+  /**
+   * LLM model for the run session: an alias ('opus', 'sonnet', 'haiku') or a
+   * full model id (e.g. 'claude-opus-4-8'); null inherits the CLI default.
+   */
+  model: string | null
   /** Maximum agent turns before the run is interrupted and escalated. */
   stepBudget: number
   /** Maximum corrective follow-ups before a failing run escalates. */
@@ -223,6 +253,7 @@ export interface TaskInput {
   purpose: string
   acceptanceCriteria: string[]
   mode?: SessionPermissionMode
+  model?: string | null
   stepBudget?: number
   recoveryBudget?: number
 }
@@ -232,6 +263,7 @@ export interface TaskPatch {
   purpose?: string
   acceptanceCriteria?: string[]
   mode?: SessionPermissionMode
+  model?: string | null
   stepBudget?: number
   recoveryBudget?: number
 }

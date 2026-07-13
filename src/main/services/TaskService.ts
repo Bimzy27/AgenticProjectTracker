@@ -73,6 +73,7 @@ export class TaskService {
       state: 'draft',
       order: siblings.length > 0 ? siblings[siblings.length - 1].order + 1 : 0,
       mode: input.mode ?? 'acceptEdits',
+      model: normalizeModel(input.model),
       stepBudget: input.stepBudget ?? DEFAULT_STEP_BUDGET,
       recoveryBudget: input.recoveryBudget ?? DEFAULT_RECOVERY_BUDGET,
       reviewFeedback: null,
@@ -102,6 +103,7 @@ export class TaskService {
       task.acceptanceCriteria = patch.acceptanceCriteria.map((c) => c.trim()).filter(Boolean)
     }
     if (patch.mode !== undefined) task.mode = patch.mode
+    if (patch.model !== undefined) task.model = normalizeModel(patch.model)
     if (patch.stepBudget !== undefined) task.stepBudget = requirePositive(patch.stepBudget, 'Step budget')
     if (patch.recoveryBudget !== undefined) {
       task.recoveryBudget = requireNonNegative(patch.recoveryBudget, 'Recovery budget')
@@ -207,12 +209,19 @@ export class TaskService {
       return
     }
     const parsed = JSON.parse(raw) as {
-      tasks?: Array<Omit<TaskDefinition, 'archived'> & { archived?: boolean }>
+      tasks?: Array<
+        Omit<TaskDefinition, 'archived' | 'model'> & { archived?: boolean; model?: string | null }
+      >
     }
     const stored = Array.isArray(parsed.tasks) ? parsed.tasks : []
-    // Migration: files written before archiving existed lack the flag; done
-    // tasks are swept into the archive to match the auto-archive-on-completion rule.
-    this.tasks = stored.map((t) => ({ ...t, archived: t.archived ?? t.state === 'done' }))
+    // Migrations: files written before archiving existed lack the flag (done
+    // tasks are swept into the archive to match the auto-archive-on-completion
+    // rule), and files written before model selection default to the CLI model.
+    this.tasks = stored.map((t) => ({
+      ...t,
+      archived: t.archived ?? t.state === 'done',
+      model: t.model ?? null
+    }))
   }
 
   private save(): void {
@@ -222,6 +231,12 @@ export class TaskService {
     writeFileSync(tmpPath, JSON.stringify(file, null, 2), 'utf8')
     renameSync(tmpPath, this.filePath)
   }
+}
+
+/** Blank or missing model selections collapse to null (the CLI's default model). */
+function normalizeModel(model: string | null | undefined): string | null {
+  const trimmed = model?.trim()
+  return trimmed ? trimmed : null
 }
 
 function requirePositive(value: number, label: string): number {

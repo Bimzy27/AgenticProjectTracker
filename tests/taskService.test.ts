@@ -26,6 +26,7 @@ describe('TaskService', () => {
       projectId: 'p1',
       state: 'draft',
       mode: 'acceptEdits',
+      model: null,
       stepBudget: 30,
       recoveryBudget: 3,
       order: 0
@@ -60,6 +61,29 @@ describe('TaskService', () => {
       mode: 'auto',
       stepBudget: 50
     })
+  })
+
+  it('stores the selected model and normalizes blank selections to the default', () => {
+    const task = service.create('p1', { ...input, model: 'opus' })
+    expect(task.model).toBe('opus')
+
+    service.update(task.id, { model: 'claude-opus-4-8' })
+    expect(service.getOrThrow(task.id).model).toBe('claude-opus-4-8')
+
+    // Whitespace-only custom ids mean "no selection", not a broken CLI flag.
+    service.update(task.id, { model: '  ' })
+    expect(service.getOrThrow(task.id).model).toBeNull()
+    expect(service.create('p1', { ...input, model: '' }).model).toBeNull()
+  })
+
+  it('defaults the model for tasks persisted before model selection existed', () => {
+    const task = service.create('p1', input)
+    const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))
+    for (const stored of file.tasks) delete stored.model
+    writeFileSync(join(userData, 'tasks.json'), JSON.stringify(file), 'utf8')
+
+    const reloaded = new TaskService(userData, sink as TaskEventSink)
+    expect(reloaded.getOrThrow(task.id).model).toBeNull()
   })
 
   it.each(['running', 'needs-input'] as const)('refuses to edit or delete a task in %s state', (state) => {

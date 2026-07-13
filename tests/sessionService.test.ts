@@ -203,10 +203,13 @@ describe('SessionService', () => {
       projectId,
       'the briefing',
       'acceptEdits',
+      null,
       { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
       observer
     )
     expect(summary).toMatchObject({ taskId: 't1', taskTitle: 'Add login', mode: 'acceptEdits' })
+    // No model picked: the CLI's configured default must stay in charge.
+    expect(queryMock.mock.calls[0][0].options.model).toBeUndefined()
 
     currentQuery.emit({
       type: 'assistant',
@@ -241,6 +244,7 @@ describe('SessionService', () => {
       projectId,
       'the briefing',
       'acceptEdits',
+      null,
       { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
       observer
     )
@@ -306,11 +310,30 @@ describe('SessionService', () => {
       projectId,
       'continue where you left off',
       'acceptEdits',
+      null,
       { taskId: 't1', taskTitle: 'Add login', runId: 'r2' },
       observer,
       'sdk-prev'
     )
     expect(queryMock.mock.calls[0][0].options.resume).toBe('sdk-prev')
+  })
+
+  it('passes the owned session model through to the Agent SDK', () => {
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    service.startOwnedSession(
+      projectId,
+      'the briefing',
+      'acceptEdits',
+      'claude-opus-4-8',
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
+      observer
+    )
+    expect(queryMock.mock.calls[0][0].options.model).toBe('claude-opus-4-8')
+  })
+
+  it('starts manual sessions on the CLI default model', () => {
+    service.startSession(projectId, 'manual work', 'plan')
+    expect(queryMock.mock.calls[0][0].options.model).toBeUndefined()
   })
 
   it('leaves manually started sessions unattributed', () => {

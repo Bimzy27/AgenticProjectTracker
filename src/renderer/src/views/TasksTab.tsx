@@ -7,6 +7,7 @@ import type {
   TaskInput,
   TaskState
 } from '@shared/domain'
+import { AGENT_MODEL_PRESETS, agentModelLabel } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
 import { formatRelativeTime, formatTokens, tracker, useTrackerEvent } from '../tracker'
 
@@ -214,6 +215,11 @@ function TaskDetail({
               </span>
             )}
             <span className="badge">{MODES.find((m) => m.id === task.mode)?.label ?? task.mode}</span>
+            {task.model !== null && (
+              <span className="badge" title={`Runs use the '${task.model}' model`}>
+                {agentModelLabel(task.model)}
+              </span>
+            )}
             {run && !run.workflowVerified && (
               <span className="badge attention" title="Workspace quality-gate skills were not detected">
                 unverified workflow
@@ -505,6 +511,12 @@ function TaskDialog({
   const [purpose, setPurpose] = useState(initial?.purpose ?? '')
   const [criteria, setCriteria] = useState(initial?.acceptanceCriteria.join('\n') ?? '')
   const [mode, setMode] = useState<SessionPermissionMode>(initial?.mode ?? 'acceptEdits')
+  // A stored model outside the presets opens the dialog in custom-id entry.
+  const storedModel = initial?.model ?? null
+  const storedIsPreset = AGENT_MODEL_PRESETS.some((p) => p.id === storedModel)
+  const [model, setModel] = useState<string | null>(storedIsPreset ? storedModel : null)
+  const [customModel, setCustomModel] = useState(storedIsPreset ? '' : (storedModel ?? ''))
+  const [useCustomModel, setUseCustomModel] = useState(!storedIsPreset)
   const [stepBudget, setStepBudget] = useState(initial?.stepBudget ?? 30)
   const [recoveryBudget, setRecoveryBudget] = useState(initial?.recoveryBudget ?? 3)
   const [error, setError] = useState<string | null>(null)
@@ -518,6 +530,7 @@ function TaskDialog({
         .map((c) => c.trim())
         .filter(Boolean),
       mode,
+      model: useCustomModel ? customModel : model,
       stepBudget,
       recoveryBudget
     }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -551,6 +564,37 @@ function TaskDialog({
               {m.label}
             </button>
           ))}
+        </div>
+        <div className="form-row">
+          Model{' '}
+          <InfoTip text="Which Claude model runs the task. Default inherits the Claude CLI's configured model; Opus is the most capable, Sonnet balances speed and cost, Haiku is fastest. Custom accepts a full model id like claude-opus-4-8." />
+          {AGENT_MODEL_PRESETS.map((preset) => (
+            <button
+              key={preset.id ?? 'default'}
+              className={`chip ${!useCustomModel && model === preset.id ? 'active' : ''}`}
+              title={preset.hint}
+              onClick={() => {
+                setUseCustomModel(false)
+                setModel(preset.id)
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+          <button
+            className={`chip ${useCustomModel ? 'active' : ''}`}
+            title="Enter a full model id"
+            onClick={() => setUseCustomModel(true)}
+          >
+            Custom
+          </button>
+          {useCustomModel && (
+            <input
+              value={customModel}
+              placeholder="Model id, e.g. claude-opus-4-8"
+              onChange={(e) => setCustomModel(e.target.value)}
+            />
+          )}
         </div>
         <div className="form-row">
           <label>

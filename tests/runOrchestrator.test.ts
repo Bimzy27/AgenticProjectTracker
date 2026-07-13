@@ -13,6 +13,7 @@ interface FakeSession {
   projectId: string
   prompt: string
   mode: SessionPermissionMode
+  model: string | null
   owner: SessionOwner
   observer: RunSessionObserver
   resumeSessionId: string | undefined
@@ -30,12 +31,13 @@ class FakeSessions implements RunSessionPort {
     projectId: string,
     prompt: string,
     mode: SessionPermissionMode,
+    model: string | null,
     owner: SessionOwner,
     observer: RunSessionObserver,
     resumeSessionId?: string
   ): SessionSummary {
     const id = `fake-${++this.seq}`
-    this.sessions.push({ id, projectId, prompt, mode, owner, observer, resumeSessionId })
+    this.sessions.push({ id, projectId, prompt, mode, model, owner, observer, resumeSessionId })
     return {
       id,
       projectId,
@@ -165,6 +167,28 @@ describe('RunOrchestrator', () => {
     orch.accept(task.id)
     expect(tasks.getOrThrow(task.id).state).toBe('done')
     expect(orch.latestRun(task.id)!.state).toBe('done')
+  })
+
+  it('runs with the CLI default model when the task does not pick one', () => {
+    const orch = makeOrchestrator()
+    orch.delegate(makeTask().id)
+    expect(sessions.last().model).toBeNull()
+  })
+
+  it('forwards the task model to the run session, including on resume', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { model: 'opus' })
+    orch.delegate(task.id)
+    expect(sessions.last().model).toBe('opus')
+
+    // A question escalates; killing the session forces the answer to resume through the SDK.
+    sessions.turn(sessions.last(), status('question', 'which auth provider?'))
+    sessions.kill(sessions.last(), null)
+    orch.answer(task.id, 'use OAuth')
+
+    const resumed = sessions.last()
+    expect(resumed.resumeSessionId).toBe('sdk-fake-1')
+    expect(resumed.model).toBe('opus')
   })
 
   it('archives an accepted task and refuses to delegate it until revived', () => {

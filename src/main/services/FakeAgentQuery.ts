@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryFn } from './SessionService'
 
@@ -21,11 +21,15 @@ const FALLBACK_TURN =
 export function createFakeAgentQuery(scriptPath: string): QueryFn {
   let sessionCounter = 0
 
-  const fake = (args: { prompt: string | AsyncIterable<SDKUserMessage> }): unknown => {
+  const fake = (args: {
+    prompt: string | AsyncIterable<SDKUserMessage>
+    options?: { model?: string; permissionMode?: string }
+  }): unknown => {
     // Read per query() call so each app launch (and test) sees the current script.
     const script = JSON.parse(readFileSync(scriptPath, 'utf8')) as FakeScript
     const sessionId = `fake-session-${++sessionCounter}`
     let turn = 0
+    recordCall(scriptPath, args.options)
 
     async function* stream(): AsyncGenerator<unknown> {
       if (typeof args.prompt === 'string') return
@@ -66,4 +70,21 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
   }
 
   return fake as QueryFn
+}
+
+/**
+ * Append the options each query() received to `<script>.calls.json`, so E2E
+ * tests can assert what would have reached the real Agent SDK (e.g. the model).
+ */
+function recordCall(scriptPath: string, options?: { model?: string; permissionMode?: string }): void {
+  const callsPath = scriptPath + '.calls.json'
+  let calls: unknown[] = []
+  try {
+    const parsed = JSON.parse(readFileSync(callsPath, 'utf8')) as unknown
+    if (Array.isArray(parsed)) calls = parsed
+  } catch {
+    // First call: no file yet.
+  }
+  calls.push({ model: options?.model ?? null, permissionMode: options?.permissionMode ?? null })
+  writeFileSync(callsPath, JSON.stringify(calls))
 }

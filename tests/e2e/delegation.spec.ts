@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
@@ -83,13 +83,16 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
     }
   )
 
-  // Create the task from the project's Tasks tab.
+  // Create the task from the project's Tasks tab, pinning it to the Opus model.
   await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
   await page.getByRole('button', { name: '+ New task' }).click()
   await page.getByPlaceholder('Task title').fill('Greeting feature')
   await page.getByPlaceholder(/What should the agent build/).fill('Add a friendly greeting module')
   await page.getByPlaceholder(/Acceptance criteria/).fill('greeting is exported')
+  await page.locator('.modal').getByRole('button', { name: 'Opus' }).click()
   await page.getByRole('button', { name: 'Create' }).click()
+  // The selected model shows as a badge on the task detail.
+  await expect(page.locator('.task-detail-header').getByText('Opus')).toBeVisible()
 
   // Delegate: the fake agent immediately asks for direction.
   await page.getByRole('button', { name: 'Delegate to agent' }).click()
@@ -153,6 +156,10 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await expect(page.locator('.transcript').getByText('Casual, please')).toBeVisible()
   await page.getByRole('button', { name: '⚑ View task' }).click()
   await expect(page.getByRole('heading', { name: 'Greeting feature' })).toBeVisible()
+
+  // The task's model selection reached the agent query at the SDK boundary.
+  const calls = JSON.parse(readFileSync(scriptPath + '.calls.json', 'utf8'))
+  expect(calls[0]).toMatchObject({ model: 'opus', permissionMode: 'acceptEdits' })
 })
 
 test('exhausted recovery escalates to the inbox and can be failed by the user', async () => {

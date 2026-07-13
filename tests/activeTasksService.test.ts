@@ -31,6 +31,7 @@ function task(
     state,
     order,
     mode: 'acceptEdits',
+    model: null,
     stepBudget: 30,
     recoveryBudget: 3,
     reviewFeedback: null,
