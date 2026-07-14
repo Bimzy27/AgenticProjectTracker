@@ -13,6 +13,7 @@ function project(id: string, name: string): Project {
     github: null,
     links: [],
     looping: false,
+    agentTaskCreation: false,
     createdAt: '2026-07-01T00:00:00Z'
   }
 }

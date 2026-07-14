@@ -43,6 +43,7 @@ function projectFor(repo: string): Project {
     github: null,
     links: [],
     looping: false,
+    agentTaskCreation: false,
     createdAt: '2026-01-01'
   }
 }

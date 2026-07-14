@@ -126,7 +126,8 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     },
     {
       claudeHome: process.env.APT_CLAUDE_HOME,
-      isProjectLooping: (projectId) => store.get(projectId)?.looping ?? false
+      isProjectLooping: (projectId) => store.get(projectId)?.looping ?? false,
+      allowAgentTasks: (projectId) => store.get(projectId)?.agentTaskCreation ?? false
     }
   )
   sessions.setAttributionLookup((sdkSessionId) => orchestrator.attributionFor(sdkSessionId))

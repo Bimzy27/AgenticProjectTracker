@@ -95,6 +95,10 @@ function status(state: string, note: string, extra = ''): string {
 
 const COMPLETE_OK = status('complete', 'built it', ', "gatePassed": true, "gateSummary": "patrol green"')
 
+function taskBlock(title: string, purpose = 'Because it matters'): string {
+  return `\`\`\`apt-task\n{ "title": "${title}", "purpose": "${purpose}", "acceptanceCriteria": ["done"] }\n\`\`\``
+}
+
 describe('RunOrchestrator', () => {
   let userData: string
   let claudeHome: string
@@ -116,7 +120,11 @@ describe('RunOrchestrator', () => {
   })
 
   function makeOrchestrator(
-    options: { maxConcurrentRuns?: number; isProjectLooping?: (projectId: string) => boolean } = {}
+    options: {
+      maxConcurrentRuns?: number
+      isProjectLooping?: (projectId: string) => boolean
+      allowAgentTasks?: (projectId: string) => boolean
+    } = {}
   ): RunOrchestrator {
     return new RunOrchestrator(userData, tasks, sessions, sink as RunEventSink, { claudeHome, ...options })
   }
@@ -625,6 +633,73 @@ describe('RunOrchestrator', () => {
     const run = orch.latestRun(task.id)!
     expect(run.workflowVerified).toBe(false)
     expect(sessions.last().prompt).not.toContain('/patrol')
+  })
+
+  it('creates draft backlog tasks from apt-task blocks when the project allows it', () => {
+    const orch = makeOrchestrator({ allowAgentTasks: (id) => id === 'p1' })
+    const task = makeTask()
+    orch.delegate(task.id)
+    // The briefing invites proposals only because the project allows them.
+    expect(sessions.last().prompt).toContain('apt-task')
+
+    sessions.turn(
+      sessions.last(),
+      `${taskBlock('Report: flaky login test')}\n${status('working', 'scouting')}`
+    )
+
+    const created = tasks.listTasks('p1').find((t) => t.title === 'Report: flaky login test')
+    expect(created).toMatchObject({
+      state: 'draft',
+      purpose: 'Because it matters',
+      acceptanceCriteria: ['done'],
+      archived: false
+    })
+    // The proposing run keeps working and records the creation in its timeline.
+    const run = orch.latestRun(task.id)!
+    expect(run.state).toBe('active')
+    expect(run.events.find((e) => e.kind === 'task-created')?.detail).toContain('Report: flaky login test')
+    // Drafts wait for the user: no new run was started for the proposal.
+    expect(sessions.sessions).toHaveLength(1)
+  })
+
+  it('ignores apt-task blocks when the project does not allow agent task creation', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask()
+    orch.delegate(task.id)
+    expect(sessions.last().prompt).not.toContain('apt-task')
+
+    sessions.turn(sessions.last(), `${taskBlock('Sneaky extra work')}\n${status('working', 'scouting')}`)
+
+    expect(tasks.listTasks('p1')).toHaveLength(1)
+    expect(orch.latestRun(task.id)!.events.some((e) => e.kind === 'task-created')).toBe(false)
+  })
+
+  it('consults the agent-tasks toggle live: turning it off mid-run stops creation', () => {
+    const allowed = new Set(['p1'])
+    const orch = makeOrchestrator({ allowAgentTasks: (id) => allowed.has(id) })
+    const task = makeTask()
+    orch.delegate(task.id)
+
+    allowed.delete('p1')
+    sessions.turn(sessions.last(), `${taskBlock('Too late')}\n${status('working', 'scouting')}`)
+
+    expect(tasks.listTasks('p1')).toHaveLength(1)
+  })
+
+  it('skips proposals whose title matches an existing unarchived task', () => {
+    const orch = makeOrchestrator({ allowAgentTasks: () => true })
+    const task = makeTask()
+    orch.delegate(task.id)
+    const session = sessions.last()
+
+    // Duplicates within one turn and across turns collapse to a single draft.
+    sessions.turn(
+      session,
+      `${taskBlock('Improve logging')}\n${taskBlock('improve logging')}\n${status('working', 'one')}`
+    )
+    sessions.turn(session, `${taskBlock('Improve logging')}\n${status('working', 'two')}`)
+
+    expect(tasks.listTasks('p1').filter((t) => t.title.toLowerCase() === 'improve logging')).toHaveLength(1)
   })
 
   it('reports the delegation summary for dashboard cards', () => {

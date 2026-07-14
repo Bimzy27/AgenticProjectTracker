@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { RunStatusReport, TaskDefinition } from '@shared/domain'
+import type { AgentTaskProposal, RunStatusReport, TaskDefinition } from '@shared/domain'
 
 // The agent <-> loop protocol (design D2): every agent turn must end with a
 // fenced apt-status JSON block, and this module is the only place that builds
@@ -20,10 +20,15 @@ export interface BriefingInput {
   task: Pick<TaskDefinition, 'title' | 'purpose' | 'acceptanceCriteria' | 'reviewFeedback'>
   /** From hasWorkspaceWorkflow(); changes how completion is instructed. */
   workflowVerified: boolean
+  /**
+   * From Project.agentTaskCreation: when true, the briefing explains how the
+   * agent can propose backlog tasks via apt-task blocks. Defaults to false.
+   */
+  allowTaskCreation?: boolean
 }
 
 /** Initial prompt for a run session: the task, the ways of working, and the status protocol. */
-export function buildBriefing({ task, workflowVerified }: BriefingInput): string {
+export function buildBriefing({ task, workflowVerified, allowTaskCreation = false }: BriefingInput): string {
   const sections: string[] = []
   sections.push(
     'You are working autonomously on a delegated task. Complete it end to end without waiting for a human unless you genuinely need direction.'
@@ -43,6 +48,11 @@ export function buildBriefing({ task, workflowVerified }: BriefingInput): string
       ? '# Ways of working\n\nFollow your installed workspace workflow: run /patrol (the full quality gate) and fix failures until it passes before reporting the task complete, use conventional commits, and report honestly. Never report complete with a failing or skipped gate.'
       : '# Ways of working\n\nRun every quality check available in this project (typecheck, lint, tests) and fix failures until they pass before reporting the task complete. Report honestly; never report complete with failing checks.'
   )
+  if (allowTaskCreation) {
+    sections.push(
+      '# Creating backlog tasks\n\nThis project allows you to add tasks to its backlog. Use this when you notice work worth doing beyond your current task: a defect to report, a release to promote, or an improvement to functionality or code quality. Propose each task with a fenced apt-task block anywhere in a response:\n\n```apt-task\n{ "title": "<short imperative title>", "purpose": "<what to do and why it matters>", "acceptanceCriteria": ["<verifiable outcome>"] }\n```\n\nEach block must be valid JSON with a non-empty "title" and "purpose"; "acceptanceCriteria" is optional. Proposed tasks land in the backlog as drafts for the user to review; they do not interrupt or extend your current work. Never use this to split up or hand off your own task: its acceptance criteria remain yours to complete.'
+    )
+  }
   sections.push(
     `# Status protocol\n\nEnd EVERY response with a fenced status block so the supervisor can track you. The format is:\n\n\`\`\`apt-status\n{ "state": "working", "note": "<one-line progress note>" }\n\`\`\`\n\nStates:\n- "working": still making progress; "note" says what you are doing.\n- "question": you need a decision or information only the user has; put the full question in "note". Use this sparingly - prefer solving problems yourself.\n- "blocked": you hit a failure you cannot resolve; "note" explains what failed and what you tried.\n- "complete": the task is done and verified. Include "gatePassed" (boolean: did the full quality gate pass?) and "gateSummary" (one line on how it was verified), e.g.\n\n\`\`\`apt-status\n{ "state": "complete", "note": "<what was built>", "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests" }\n\`\`\`\n\nWhen you can make the completed changes testable in a debug environment (for example a dev server you started and left running, or a preview deployment), also include "debugUrl" with the http(s) link so the reviewer can try the changes directly. Only include a link you have verified is reachable; omit the field when there is nothing to link.\n\nWhen the changes were delivered on a branch or pull request, also include "changesUrl" with the http(s) link to that pull request (or branch comparison) so the reviewer can inspect the files changed during the task. Omit the field when the work never left the local working tree.\n\nThe block must be valid JSON. Never omit it.`
   )
@@ -99,6 +109,45 @@ function parseReportJson(raw: string): RunStatusReport | null {
     gateSummary: typeof record.gateSummary === 'string' ? record.gateSummary : null,
     debugUrl: parseHttpUrl(record.debugUrl),
     changesUrl: parseHttpUrl(record.changesUrl)
+  }
+}
+
+/**
+ * Extract every backlog-task proposal (fenced apt-task block) from a message,
+ * in order of appearance. Tolerant like parseStatusBlock: blocks may sit
+ * anywhere in the text, unknown fields are ignored, and a block that is not
+ * valid JSON with a non-empty title and purpose is skipped rather than
+ * failing the turn.
+ */
+export function parseTaskBlocks(text: string): AgentTaskProposal[] {
+  const proposals: AgentTaskProposal[] = []
+  for (const match of text.matchAll(/```apt-task\s*\n([\s\S]*?)```/gi)) {
+    const proposal = parseProposalJson(match[1])
+    if (proposal) proposals.push(proposal)
+  }
+  return proposals
+}
+
+function parseProposalJson(raw: string): AgentTaskProposal | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const record = parsed as Record<string, unknown>
+  const title = typeof record.title === 'string' ? record.title.trim() : ''
+  const purpose = typeof record.purpose === 'string' ? record.purpose.trim() : ''
+  if (!title || !purpose) return null
+  const criteria = Array.isArray(record.acceptanceCriteria) ? record.acceptanceCriteria : []
+  return {
+    title,
+    purpose,
+    acceptanceCriteria: criteria
+      .filter((c): c is string => typeof c === 'string')
+      .map((c) => c.trim())
+      .filter(Boolean)
   }
 }
 

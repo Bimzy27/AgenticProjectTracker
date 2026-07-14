@@ -2,10 +2,19 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildBriefing, hasWorkspaceWorkflow, parseStatusBlock } from '../src/main/services/RunProtocol'
+import {
+  buildBriefing,
+  hasWorkspaceWorkflow,
+  parseStatusBlock,
+  parseTaskBlocks
+} from '../src/main/services/RunProtocol'
 
 function block(json: string): string {
   return '```apt-status\n' + json + '\n```'
+}
+
+function taskBlock(json: string): string {
+  return '```apt-task\n' + json + '\n```'
 }
 
 describe('parseStatusBlock', () => {
@@ -120,6 +129,66 @@ describe('parseStatusBlock', () => {
   })
 })
 
+describe('parseTaskBlocks', () => {
+  it('parses a proposal with title, purpose, and acceptance criteria', () => {
+    const proposals = parseTaskBlocks(
+      'I noticed a defect worth its own task.\n' +
+        taskBlock(
+          '{ "title": "Fix login flake", "purpose": "The login E2E test fails intermittently.", "acceptanceCriteria": ["test passes 20x in a row"] }'
+        )
+    )
+    expect(proposals).toEqual([
+      {
+        title: 'Fix login flake',
+        purpose: 'The login E2E test fails intermittently.',
+        acceptanceCriteria: ['test passes 20x in a row']
+      }
+    ])
+  })
+
+  it('collects multiple blocks in order and skips malformed ones', () => {
+    const proposals = parseTaskBlocks(
+      taskBlock('{ "title": "First", "purpose": "p1" }') +
+        '\n' +
+        taskBlock('not json at all') +
+        '\n' +
+        taskBlock('{ "title": "Second", "purpose": "p2" }')
+    )
+    expect(proposals.map((p) => p.title)).toEqual(['First', 'Second'])
+  })
+
+  it('skips proposals without a non-empty title and purpose', () => {
+    for (const bad of [
+      '{ "purpose": "no title" }',
+      '{ "title": "  ", "purpose": "blank title" }',
+      '{ "title": "no purpose" }',
+      '{ "title": "t", "purpose": "" }',
+      '"just a string"'
+    ]) {
+      expect(parseTaskBlocks(taskBlock(bad))).toEqual([])
+    }
+  })
+
+  it('defaults missing criteria to empty and normalizes them (trim, drop empties and non-strings)', () => {
+    const [noCriteria] = parseTaskBlocks(taskBlock('{ "title": "t", "purpose": "p" }'))
+    expect(noCriteria.acceptanceCriteria).toEqual([])
+    const [messy] = parseTaskBlocks(
+      taskBlock('{ "title": "t", "purpose": "p", "acceptanceCriteria": [" a ", "", 42, "b"] }')
+    )
+    expect(messy.acceptanceCriteria).toEqual(['a', 'b'])
+  })
+
+  it('trims the title and purpose', () => {
+    const [proposal] = parseTaskBlocks(taskBlock('{ "title": " Fix it ", "purpose": " Because. " }'))
+    expect(proposal).toMatchObject({ title: 'Fix it', purpose: 'Because.' })
+  })
+
+  it('ignores apt-status blocks and returns an empty list when nothing is proposed', () => {
+    expect(parseTaskBlocks(block('{ "state": "working", "note": "n" }'))).toEqual([])
+    expect(parseTaskBlocks('No blocks here.')).toEqual([])
+  })
+})
+
 describe('buildBriefing', () => {
   const task = {
     title: 'Add login',
@@ -157,6 +226,16 @@ describe('buildBriefing', () => {
     const briefing = buildBriefing({ task, workflowVerified: false })
     expect(briefing).not.toContain('/patrol')
     expect(briefing).toContain('quality check')
+  })
+
+  it('explains apt-task proposals only when task creation is allowed', () => {
+    const withCreation = buildBriefing({ task, workflowVerified: true, allowTaskCreation: true })
+    expect(withCreation).toContain('```apt-task')
+    expect(withCreation).toContain('Creating backlog tasks')
+
+    // Off by default: an unbriefed agent is never invited to create tasks.
+    const withoutCreation = buildBriefing({ task, workflowVerified: true })
+    expect(withoutCreation).not.toContain('apt-task')
   })
 
   it('carries review feedback into re-runs', () => {

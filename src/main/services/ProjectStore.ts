@@ -50,6 +50,7 @@ export class ProjectStore {
       github: input.github,
       links: [],
       looping: false,
+      agentTaskCreation: false,
       createdAt: new Date().toISOString()
     }
     this.projects.push(project)
@@ -69,6 +70,7 @@ export class ProjectStore {
     if (links !== undefined) project.links = links
     if (patch.path !== undefined) project.path = patch.path
     if (patch.looping !== undefined) project.looping = patch.looping
+    if (patch.agentTaskCreation !== undefined) project.agentTaskCreation = patch.agentTaskCreation
     this.save()
     return project
   }
@@ -91,11 +93,13 @@ export class ProjectStore {
     const parsed = JSON.parse(raw) as RegistryFile
     const projects = Array.isArray(parsed.projects) ? parsed.projects : []
     // Migrations: registries written before important links existed lack the
-    // field, and ones written before looping mode default to it being off.
+    // field, and ones written before looping mode or agent task creation
+    // default those toggles to off.
     this.projects = projects.map((p) => ({
       ...p,
       links: Array.isArray(p.links) ? p.links : [],
-      looping: p.looping ?? false
+      looping: p.looping ?? false,
+      agentTaskCreation: p.agentTaskCreation ?? false
     }))
   }
 

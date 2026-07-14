@@ -87,6 +87,19 @@ export function ProjectView({
             Looping
           </label>
           <InfoTip text="Looping mode keeps agents working through this project's backlog: when a task's run completes it is approved automatically (skipping your review, including tasks already waiting in review), and the next backlog task is delegated on its own. Questions and failures still come to you. Off by default." />
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={project.agentTaskCreation}
+              onChange={(e) =>
+                void tracker
+                  .invoke('updateProject', project.id, { agentTaskCreation: e.target.checked })
+                  .catch(console.error)
+              }
+            />
+            Agent tasks
+          </label>
+          <InfoTip text="Agent tasks lets agents working in this project add tasks to the backlog themselves, e.g. to report a defect they noticed, promote a release, or propose a functionality or code-quality improvement. Proposed tasks land as drafts for your review; nothing runs without you delegating it (unless looping picks it up). Off by default." />
           <button
             title="Open the repository root in VS Code"
             onClick={() => void tracker.invoke('openProjectInEditor', project.id).catch(console.error)}

@@ -141,6 +141,28 @@ describe('ProjectStore', () => {
     expect(reloaded.getOrThrow(project.id).looping).toBe(false)
   })
 
+  it('starts projects with agent task creation off', () => {
+    expect(store.add(input()).agentTaskCreation).toBe(false)
+  })
+
+  it('toggles agent task creation via patch and persists it', () => {
+    const project = store.add(input())
+    expect(store.update(project.id, { agentTaskCreation: true }).agentTaskCreation).toBe(true)
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).agentTaskCreation).toBe(true)
+    expect(store.update(project.id, { agentTaskCreation: false }).agentTaskCreation).toBe(false)
+  })
+
+  it('defaults agent task creation off for registry files written before it existed', () => {
+    const project = store.add(input())
+    const registryPath = join(dir, 'projects.json')
+    const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
+    delete raw.projects[0].agentTaskCreation
+    writeFileSync(registryPath, JSON.stringify(raw))
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).agentTaskCreation).toBe(false)
+  })
+
   it('removes projects and throws for unknown ids', () => {
     const project = store.add(input())
     store.remove(project.id)

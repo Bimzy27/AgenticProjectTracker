@@ -20,7 +20,8 @@ import {
   buildBriefing,
   buildNudge,
   hasWorkspaceWorkflow,
-  parseStatusBlock
+  parseStatusBlock,
+  parseTaskBlocks
 } from './RunProtocol'
 import type { SessionOwner, RunSessionObserver } from './SessionService'
 import type { TaskService } from './TaskService'
@@ -62,6 +63,12 @@ export interface RunOrchestratorOptions {
    * scheduler consults it on every pass. Defaults to looping never being on.
    */
   isProjectLooping?: (projectId: string) => boolean
+  /**
+   * Whether a project lets agents create backlog tasks (see
+   * Project.agentTaskCreation); consulted at briefing time and again on every
+   * turn, so flipping the toggle takes effect mid-run. Defaults to never.
+   */
+  allowAgentTasks?: (projectId: string) => boolean
 }
 
 /** Per-run state that only matters while the app is alive. */
@@ -85,6 +92,7 @@ export class RunOrchestrator {
   private readonly maxConcurrentRuns: number
   private readonly claudeHome: string | undefined
   private readonly isProjectLooping: (projectId: string) => boolean
+  private readonly allowAgentTasks: (projectId: string) => boolean
 
   constructor(
     userDataDir: string,
@@ -97,6 +105,7 @@ export class RunOrchestrator {
     this.claudeHome = options.claudeHome
     this.maxConcurrentRuns = options.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS
     this.isProjectLooping = options.isProjectLooping ?? (() => false)
+    this.allowAgentTasks = options.allowAgentTasks ?? (() => false)
     this.load()
   }
 
@@ -352,7 +361,11 @@ export class RunOrchestrator {
       endedAt: null
     }
     this.runs.push(run)
-    const briefing = buildBriefing({ task, workflowVerified })
+    const briefing = buildBriefing({
+      task,
+      workflowVerified,
+      allowTaskCreation: this.allowAgentTasks(task.projectId)
+    })
     const summary = this.sessions.startOwnedSession(
       task.projectId,
       briefing,
@@ -396,7 +409,11 @@ export class RunOrchestrator {
         )
       } else {
         run.workflowVerified = hasWorkspaceWorkflow(this.claudeHome)
-        const briefing = buildBriefing({ task, workflowVerified: run.workflowVerified })
+        const briefing = buildBriefing({
+          task,
+          workflowVerified: run.workflowVerified,
+          allowTaskCreation: this.allowAgentTasks(run.projectId)
+        })
         const prompt = userContext
           ? `${briefing}\n\n# Additional direction from the user\n\n${userContext.trim()}`
           : briefing
@@ -444,6 +461,7 @@ export class RunOrchestrator {
     }
     const task = this.tasks.get(run.taskId)
     if (!task) return
+    this.createProposedTasks(run, assistantText)
     if (run.stepsUsed > task.stepBudget) {
       this.exceedStepBudget(run, task)
       return
@@ -468,6 +486,32 @@ export class RunOrchestrator {
     }
     rt.awaitingReprompt = false
     this.handleReport(run, task, report)
+  }
+
+  /**
+   * Create backlog drafts from the turn's apt-task blocks (see
+   * Project.agentTaskCreation). The toggle is consulted here, at consumption
+   * time, so turning it off silences an already-briefed agent immediately.
+   * Proposals whose title matches an existing unarchived task in the project
+   * are skipped, so an agent repeating its blocks cannot flood the backlog.
+   */
+  private createProposedTasks(run: RunRecord, assistantText: string): void {
+    if (!this.allowAgentTasks(run.projectId)) return
+    let created = false
+    for (const proposal of parseTaskBlocks(assistantText)) {
+      const duplicate = this.tasks
+        .listTasks(run.projectId)
+        .some((t) => !t.archived && t.title.toLowerCase() === proposal.title.toLowerCase())
+      if (duplicate) continue
+      this.tasks.create(run.projectId, {
+        title: proposal.title,
+        purpose: proposal.purpose,
+        acceptanceCriteria: proposal.acceptanceCriteria
+      })
+      this.pushEvent(run, 'task-created', `Added draft task "${proposal.title}" to the backlog`)
+      created = true
+    }
+    if (created) this.commit(run)
   }
 
   private handleReport(run: RunRecord, task: TaskDefinition, report: RunStatusReport): void {

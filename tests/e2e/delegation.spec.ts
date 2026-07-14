@@ -350,10 +350,12 @@ test('looping mode drives the backlog hands-free and is toggled per project', as
   await page.getByRole('button', { name: 'Archive' }).click()
 
   // The looping toggle starts off and explains itself in a tooltip.
-  const looping = page.locator('.view-header-actions').getByRole('checkbox')
+  const looping = page.getByRole('checkbox', { name: 'Looping' })
   await expect(looping).not.toBeChecked()
-  await page.locator('.view-header-actions .info-tip').hover()
-  await expect(page.locator('.view-header-actions .info-tip-bubble')).toContainText('approved automatically')
+  await page.locator('.view-header-actions .info-tip').first().hover()
+  await expect(page.locator('.view-header-actions .info-tip-bubble').first()).toContainText(
+    'approved automatically'
+  )
 
   // Two drafts wait in the backlog.
   for (const title of ['Loop step one', 'Loop step two']) {
@@ -383,4 +385,71 @@ test('looping mode drives the backlog hands-free and is toggled per project', as
   // The loop rests once the backlog is empty, and the toggle turns off cleanly.
   await looping.click()
   await expect(looping).not.toBeChecked()
+})
+
+test('the agent tasks toggle lets agents add draft tasks to the backlog', async () => {
+  const proposal =
+    '```apt-task\n' +
+    '{ "title": "Fix greeting typo", "purpose": "The greeting misspells hello; fix it and add a regression test.", ' +
+    '"acceptanceCriteria": ["greeting spelled correctly"] }\n' +
+    '```'
+  scriptAgent(
+    `Done, and I noticed a defect along the way.\n${proposal}\n${statusBlock(
+      'complete',
+      'Scouted the repo',
+      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"'
+    )}`
+  )
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+
+  // The toggle starts off and explains itself; while it is off, the agent's
+  // apt-task proposal is ignored.
+  const agentTasks = page.getByRole('checkbox', { name: 'Agent tasks' })
+  await expect(agentTasks).not.toBeChecked()
+  await page.locator('.view-header-actions .info-tip').nth(1).hover()
+  await expect(page.locator('.view-header-actions .info-tip-bubble').nth(1)).toContainText(
+    'add tasks to the backlog'
+  )
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Scout without permission')
+  await page.getByPlaceholder(/What should the agent build/).fill('Scout the repo for issues')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  await expect(page.locator('.task-row').getByText('Fix greeting typo')).toHaveCount(0)
+  await page.getByRole('button', { name: '✓ Accept' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+
+  // With the toggle on, the same proposal lands in the backlog as a draft.
+  // (click + expect rather than check(): the checkbox is controlled and only
+  // reflects the change after the updateProject round trip)
+  await agentTasks.click()
+  await expect(agentTasks).toBeChecked()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Scout with permission')
+  await page.getByPlaceholder(/What should the agent build/).fill('Scout the repo for issues again')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+
+  const draftRow = page.locator('.task-row', { hasText: 'Fix greeting typo' })
+  await expect(draftRow).toBeVisible()
+  await expect(draftRow.locator('.badge.task-draft')).toBeVisible()
+  // The proposing run records the creation in its timeline and still reviews cleanly.
+  await expect(
+    page.locator('.run-timeline').getByText('Added draft task "Fix greeting typo" to the backlog')
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  await page.getByRole('button', { name: '✓ Accept' }).click()
+
+  // The draft carries the agent's briefing and waits for the user to delegate it.
+  await draftRow.click()
+  await expect(
+    page.getByText('The greeting misspells hello; fix it and add a regression test.')
+  ).toBeVisible()
+  await expect(page.getByText('greeting spelled correctly')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Delegate to agent' })).toBeVisible()
+
+  await agentTasks.click()
+  await expect(agentTasks).not.toBeChecked()
 })

@@ -35,6 +35,14 @@ export interface Project {
    * to the user.
    */
   looping: boolean
+  /**
+   * Agent task creation (off by default): while enabled, agents running
+   * delegated work in this project may add tasks to the backlog by emitting
+   * fenced apt-task blocks, e.g. to report a defect they noticed, promote a
+   * release, or propose a functionality or code-quality improvement.
+   * Proposed tasks always land as drafts for the user to review.
+   */
+  agentTaskCreation: boolean
   createdAt: string
 }
 
@@ -55,6 +63,8 @@ export interface ProjectPatch {
   path?: string
   /** Turn looping mode on or off (see Project.looping). */
   looping?: boolean
+  /** Turn agent task creation on or off (see Project.agentTaskCreation). */
+  agentTaskCreation?: boolean
 }
 
 /**
@@ -304,6 +314,17 @@ export interface RunStatusReport {
   changesUrl: string | null
 }
 
+/**
+ * A backlog task proposed by an agent through a fenced apt-task block
+ * (see Project.agentTaskCreation); parsed like RunStatusReport, never
+ * inferred from prose.
+ */
+export interface AgentTaskProposal {
+  title: string
+  purpose: string
+  acceptanceCriteria: string[]
+}
+
 export type RunState = 'active' | 'needs-input' | 'review' | 'done' | 'failed' | 'interrupted'
 
 export type RunEscalationKind = 'question' | 'recovery-exhausted' | 'step-budget' | 'interrupted'
@@ -331,6 +352,7 @@ export interface RunEvent {
   kind:
     | 'started'
     | 'status'
+    | 'task-created'
     | 'nudge'
     | 'escalated'
     | 'answered'
