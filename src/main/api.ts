@@ -65,6 +65,9 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     updateProject: async (id: string, patch: ProjectPatch) => {
       const project = await deps.projects.update(id, patch)
       deps.onProjectsChanged()
+      // Toggling looping mode changes scheduling inputs: reschedule so turning
+      // it on unblocks parked reviews and picks up the backlog immediately.
+      if (patch.looping !== undefined) deps.orchestrator.reschedule()
       return project
     },
     removeProject: async (id: string) => {

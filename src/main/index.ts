@@ -124,7 +124,10 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
         pushInbox()
       }
     },
-    { claudeHome: process.env.APT_CLAUDE_HOME }
+    {
+      claudeHome: process.env.APT_CLAUDE_HOME,
+      isProjectLooping: (projectId) => store.get(projectId)?.looping ?? false
+    }
   )
   sessions.setAttributionLookup((sdkSessionId) => orchestrator.attributionFor(sdkSessionId))
   inbox = new InboxService({ projects: store, tasks, runs: orchestrator, sessions })

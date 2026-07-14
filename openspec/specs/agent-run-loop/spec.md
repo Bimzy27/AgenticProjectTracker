@@ -94,6 +94,32 @@ The briefing SHALL instruct the agent to include, when able, an http(s) link to 
 - **WHEN** a task marked auto-approve completes with a passing quality-gate result
 - **THEN** the run is accepted automatically, the task moves to done without a review step, and the auto-approval is recorded in the run history
 
+### Requirement: Looping mode drives a project's backlog hands-free
+
+Each project SHALL offer a looping-mode toggle (off by default, persisted per project) in the project view, with a tooltip explaining its effect.
+While looping is enabled for a project: completed runs with a passing gate SHALL be approved automatically instead of waiting for review; enabling the toggle SHALL immediately approve the project's runs already parked in review; and whenever the project's agent is free, the first draft task in backlog order SHALL be delegated automatically.
+Looping SHALL NOT bypass escalations: questions, exhausted recovery, and step-budget escalations still stop the loop until the user responds, and failed tasks are never restarted by the loop.
+
+#### Scenario: Loop picks up the next task
+
+- **WHEN** a run completes with a passing gate in a project with looping enabled
+- **THEN** the run is approved automatically and the next draft task in backlog order is delegated without user involvement
+
+#### Scenario: Enabling looping unblocks parked reviews
+
+- **WHEN** the user enables looping on a project that has a task waiting in review
+- **THEN** that task is approved automatically and the backlog continues
+
+#### Scenario: Looping does not bypass questions
+
+- **WHEN** the agent asks a question while looping is enabled
+- **THEN** the task moves to needs-input and no further backlog task starts in that project until the user answers
+
+#### Scenario: Looping is scoped to its project
+
+- **WHEN** looping is enabled on one project
+- **THEN** other projects' backlogs and reviews are unaffected
+
 ### Requirement: Run budgets and interruption
 
 Each run SHALL have a step budget limiting agent turns (user-adjustable per task); exceeding it SHALL interrupt the session and escalate to the user.

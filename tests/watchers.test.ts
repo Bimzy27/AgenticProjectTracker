@@ -47,6 +47,7 @@ describe('Watchers repo watching', () => {
     tags: [],
     github: null,
     links: [],
+    looping: false,
     createdAt: new Date().toISOString()
   })
 

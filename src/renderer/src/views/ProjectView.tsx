@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Project } from '@shared/domain'
 import { tracker } from '../tracker'
+import { InfoTip } from '../components/InfoTip'
 import { ProjectLinksDialog } from '../components/ProjectLinksDialog'
 import { AnalyticsTab } from './AnalyticsTab'
 import { DiffsTab } from './DiffsTab'
@@ -72,12 +73,27 @@ export function ProjectView({
             </button>
           </div>
         </div>
-        <button
-          title="Open the repository root in VS Code"
-          onClick={() => void tracker.invoke('openProjectInEditor', project.id).catch(console.error)}
-        >
-          VSCode
-        </button>
+        <div className="view-header-actions">
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={project.looping}
+              onChange={(e) =>
+                void tracker
+                  .invoke('updateProject', project.id, { looping: e.target.checked })
+                  .catch(console.error)
+              }
+            />
+            Looping
+          </label>
+          <InfoTip text="Looping mode keeps agents working through this project's backlog: when a task's run completes it is approved automatically (skipping your review, including tasks already waiting in review), and the next backlog task is delegated on its own. Questions and failures still come to you. Off by default." />
+          <button
+            title="Open the repository root in VS Code"
+            onClick={() => void tracker.invoke('openProjectInEditor', project.id).catch(console.error)}
+          >
+            VSCode
+          </button>
+        </div>
       </header>
       <div className="tab-bar">
         {TABS.map((t) => (

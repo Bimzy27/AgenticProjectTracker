@@ -138,6 +138,23 @@ a:hover {
   margin-bottom: 16px;
   gap: 12px;
 }
+.view-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+/* The actions sit against the right window edge: anchor the tooltip bubble
+   to the icon's right side so it opens leftwards instead of clipping. */
+.view-header-actions .info-tip-bubble {
+  left: auto;
+  right: -8px;
+  transform: none;
+}
+/* The InfoTip already carries its own left margin next to the toggle label. */
+.view-header-actions .info-tip {
+  margin-left: -4px;
+}
 
 /* Buttons and inputs */
 button {

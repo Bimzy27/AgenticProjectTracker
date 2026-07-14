@@ -49,6 +49,7 @@ export class ProjectStore {
       tags: normalizeTags(input.tags),
       github: input.github,
       links: [],
+      looping: false,
       createdAt: new Date().toISOString()
     }
     this.projects.push(project)
@@ -67,6 +68,7 @@ export class ProjectStore {
     if (patch.github !== undefined) project.github = patch.github
     if (links !== undefined) project.links = links
     if (patch.path !== undefined) project.path = patch.path
+    if (patch.looping !== undefined) project.looping = patch.looping
     this.save()
     return project
   }
@@ -88,8 +90,13 @@ export class ProjectStore {
     }
     const parsed = JSON.parse(raw) as RegistryFile
     const projects = Array.isArray(parsed.projects) ? parsed.projects : []
-    // Registries written before important links existed lack the field.
-    this.projects = projects.map((p) => ({ ...p, links: Array.isArray(p.links) ? p.links : [] }))
+    // Migrations: registries written before important links existed lack the
+    // field, and ones written before looping mode default to it being off.
+    this.projects = projects.map((p) => ({
+      ...p,
+      links: Array.isArray(p.links) ? p.links : [],
+      looping: p.looping ?? false
+    }))
   }
 
   private save(): void {

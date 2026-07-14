@@ -119,6 +119,28 @@ describe('ProjectStore', () => {
     expect(reloaded.getOrThrow(project.id).links).toEqual([])
   })
 
+  it('starts projects with looping mode off', () => {
+    expect(store.add(input()).looping).toBe(false)
+  })
+
+  it('toggles looping mode via patch and persists it', () => {
+    const project = store.add(input())
+    expect(store.update(project.id, { looping: true }).looping).toBe(true)
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).looping).toBe(true)
+    expect(store.update(project.id, { looping: false }).looping).toBe(false)
+  })
+
+  it('defaults looping off for registry files written before looping existed', () => {
+    const project = store.add(input())
+    const registryPath = join(dir, 'projects.json')
+    const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
+    delete raw.projects[0].looping
+    writeFileSync(registryPath, JSON.stringify(raw))
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).looping).toBe(false)
+  })
+
   it('removes projects and throws for unknown ids', () => {
     const project = store.add(input())
     store.remove(project.id)

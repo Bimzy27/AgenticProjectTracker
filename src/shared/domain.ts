@@ -27,6 +27,14 @@ export interface Project {
   github: GithubRepoRef | null
   /** Important links configured by the user, shown on the project view. */
   links: ProjectLink[]
+  /**
+   * Looping mode (off by default): while enabled, completed runs in this
+   * project are approved automatically instead of waiting for the user's
+   * review, and when the project's agent is free the next draft task in the
+   * backlog is delegated automatically. Questions and failures still escalate
+   * to the user.
+   */
+  looping: boolean
   createdAt: string
 }
 
@@ -45,6 +53,8 @@ export interface ProjectPatch {
   links?: ProjectLink[]
   /** Relocate the project to a new directory. */
   path?: string
+  /** Turn looping mode on or off (see Project.looping). */
+  looping?: boolean
 }
 
 /**

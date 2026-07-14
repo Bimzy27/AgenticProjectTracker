@@ -12,6 +12,7 @@ import type {
   SessionSummary,
   TaskDefinition
 } from '@shared/domain'
+import { ACTIVE_TASK_STATES } from '@shared/domain'
 import {
   RESUME_PROMPT,
   STATUS_REPROMPT,
@@ -56,6 +57,11 @@ export interface RunOrchestratorOptions {
   /** Claude home dir for workspace-skill detection; the APT_CLAUDE_HOME seam is applied by the caller. */
   claudeHome?: string
   maxConcurrentRuns?: number
+  /**
+   * Whether a project has looping mode enabled (see Project.looping); the
+   * scheduler consults it on every pass. Defaults to looping never being on.
+   */
+  isProjectLooping?: (projectId: string) => boolean
 }
 
 /** Per-run state that only matters while the app is alive. */
@@ -78,6 +84,7 @@ export class RunOrchestrator {
   private readonly runtime = new Map<string, RunRuntime>()
   private readonly maxConcurrentRuns: number
   private readonly claudeHome: string | undefined
+  private readonly isProjectLooping: (projectId: string) => boolean
 
   constructor(
     userDataDir: string,
@@ -89,6 +96,7 @@ export class RunOrchestrator {
     this.filePath = join(userDataDir, 'runs.json')
     this.claudeHome = options.claudeHome
     this.maxConcurrentRuns = options.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS
+    this.isProjectLooping = options.isProjectLooping ?? (() => false)
     this.load()
   }
 
@@ -229,11 +237,54 @@ export class RunOrchestrator {
 
   // ---------- Scheduling ----------
 
+  /**
+   * Re-run the scheduler after an external scheduling input changed, e.g. the
+   * user toggled a project's looping mode. Turning looping on takes effect
+   * immediately: runs parked in review are auto-approved and the backlog is
+   * picked up without waiting for the next run event.
+   */
+  reschedule(): void {
+    this.pump()
+  }
+
   /** Start queued tasks in order while per-project exclusivity and the global cap allow. */
   private pump(): void {
+    this.pumpLooping()
     for (const task of this.startCandidates()) {
       if (this.activeRunCount() >= this.maxConcurrentRuns) return
       this.startRun(task)
+    }
+  }
+
+  /**
+   * Apply looping mode (see Project.looping) before regular scheduling: in
+   * looping projects, runs parked in review are approved automatically (the
+   * user's sign-off is skipped), and when a project is otherwise idle the
+   * first draft task in backlog order is queued so the agent picks it up.
+   * Questions and failures are untouched: needs-input still blocks the loop
+   * until the user responds.
+   */
+  private pumpLooping(): void {
+    const all = this.tasks.listAll()
+    // Approve parked reviews first so their projects are free for the pickup pass.
+    for (const task of all) {
+      if (task.state !== 'review' || !this.isProjectLooping(task.projectId)) continue
+      const run = this.latestRun(task.id)
+      if (run?.state === 'review') this.finishAccepted(run, task, 'Auto-approved by looping mode')
+    }
+    const idleLoopingProjects = new Set(
+      all
+        .map((t) => t.projectId)
+        .filter(
+          (projectId) =>
+            this.isProjectLooping(projectId) &&
+            !this.projectBusy(projectId) &&
+            !all.some((t) => t.projectId === projectId && ACTIVE_TASK_STATES.includes(t.state))
+        )
+    )
+    for (const projectId of idleLoopingProjects) {
+      const next = this.tasks.listTasks(projectId).find((t) => t.state === 'draft' && !t.archived)
+      if (next) this.tasks.setState(next.id, 'queued')
     }
   }
 

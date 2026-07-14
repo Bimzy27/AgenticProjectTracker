@@ -334,3 +334,53 @@ test('an auto-approve task completes straight to done without a review step', as
   await expect(page.locator('.run-timeline').getByText('Auto-approved on completion')).toBeVisible()
 })
 
+test('looping mode drives the backlog hands-free and is toggled per project', async () => {
+  scriptAgent(
+    `Done.\n${statusBlock(
+      'complete',
+      'Finished the looped change',
+      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"'
+    )}`
+  )
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+
+  // Tidy: archive the leftover draft so the loop exercises only this test's tasks.
+  await page.locator('.task-row').getByText('Greeting feature').click()
+  await page.getByRole('button', { name: 'Archive' }).click()
+
+  // The looping toggle starts off and explains itself in a tooltip.
+  const looping = page.locator('.view-header-actions').getByRole('checkbox')
+  await expect(looping).not.toBeChecked()
+  await page.locator('.view-header-actions .info-tip').hover()
+  await expect(page.locator('.view-header-actions .info-tip-bubble')).toContainText('approved automatically')
+
+  // Two drafts wait in the backlog.
+  for (const title of ['Loop step one', 'Loop step two']) {
+    await page.getByRole('button', { name: '+ New task' }).click()
+    await page.getByPlaceholder('Task title').fill(title)
+    await page.getByPlaceholder(/What should the agent build/).fill(`Do the work for ${title}`)
+    await page.getByRole('button', { name: 'Create' }).click()
+  }
+
+  // Flip looping on: both drafts are delegated and approved hands-free, one
+  // after the other, leaving the backlog without parking in review or raising
+  // attention items. The failed tasks from earlier tests are left alone.
+  await looping.click()
+  await expect(looping).toBeChecked()
+  await expect(page.locator('.task-row').getByText('Loop step one')).toHaveCount(0)
+  await expect(page.locator('.task-row').getByText('Loop step two')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toHaveCount(0)
+  await expect(page.locator('.attention-count')).toHaveCount(0)
+
+  // The archive holds both loop tasks done, approved by the loop.
+  await page.locator('.task-list').getByRole('checkbox').check()
+  await page.locator('.task-row').getByText('Loop step two').click()
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+  await expect(page.locator('.run-timeline').getByText('Auto-approved by looping mode')).toBeVisible()
+  await page.locator('.task-list').getByRole('checkbox').uncheck()
+
+  // The loop rests once the backlog is empty, and the toggle turns off cleanly.
+  await looping.click()
+  await expect(looping).not.toBeChecked()
+})

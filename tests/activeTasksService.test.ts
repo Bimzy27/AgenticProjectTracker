@@ -12,6 +12,7 @@ function project(id: string, name: string): Project {
     tags: [],
     github: null,
     links: [],
+    looping: false,
     createdAt: '2026-07-01T00:00:00Z'
   }
 }

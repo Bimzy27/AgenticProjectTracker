@@ -115,7 +115,9 @@ describe('RunOrchestrator', () => {
     for (const dir of [userData, claudeHome]) rmSync(dir, { recursive: true, force: true })
   })
 
-  function makeOrchestrator(options: { maxConcurrentRuns?: number } = {}): RunOrchestrator {
+  function makeOrchestrator(
+    options: { maxConcurrentRuns?: number; isProjectLooping?: (projectId: string) => boolean } = {}
+  ): RunOrchestrator {
     return new RunOrchestrator(userData, tasks, sessions, sink as RunEventSink, { claudeHome, ...options })
   }
 
@@ -205,6 +207,94 @@ describe('RunOrchestrator', () => {
     orch.answer(task.id, 'use OAuth')
     sessions.turn(sessions.last(), COMPLETE_OK)
     expect(tasks.getOrThrow(task.id).state).toBe('done')
+  })
+
+  it('looping mode auto-approves completions and picks up the next draft in backlog order', () => {
+    const looping = new Set(['p1'])
+    const orch = makeOrchestrator({ isProjectLooping: (id) => looping.has(id) })
+    const first = makeTask('p1', { title: 'First loop task' })
+    const second = makeTask('p1', { title: 'Second loop task' })
+    const otherProject = makeTask('p2', { title: 'Not looping' })
+    orch.delegate(first.id)
+
+    sessions.turn(sessions.last(), COMPLETE_OK)
+
+    // The completion never parks in review: the run is accepted by the loop...
+    expect(tasks.getOrThrow(first.id).state).toBe('done')
+    expect(tasks.getOrThrow(first.id).archived).toBe(true)
+    const firstRun = orch.latestRun(first.id)!
+    expect(firstRun.state).toBe('done')
+    expect(firstRun.events.find((e) => e.kind === 'accepted')?.detail).toBe('Auto-approved by looping mode')
+    // ...and the next draft task starts on its own, in a fresh session.
+    expect(tasks.getOrThrow(second.id).state).toBe('running')
+    expect(sessions.sessions).toHaveLength(2)
+    expect(sessions.last().prompt).toContain('Second loop task')
+    // Drafts of projects without looping mode are left alone.
+    expect(tasks.getOrThrow(otherProject.id).state).toBe('draft')
+
+    // The loop rests once the backlog is empty.
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    expect(tasks.getOrThrow(second.id).state).toBe('done')
+    expect(sessions.sessions).toHaveLength(2)
+  })
+
+  it('enabling looping mid-flight unblocks a task parked in review and resumes the backlog', () => {
+    const looping = new Set<string>()
+    const orch = makeOrchestrator({ isProjectLooping: (id) => looping.has(id) })
+    const first = makeTask('p1')
+    const second = makeTask('p1', { title: 'Next in line' })
+    orch.delegate(first.id)
+    sessions.turn(sessions.last(), COMPLETE_OK)
+
+    // Looping is off: the completion waits for the user's review as usual.
+    expect(tasks.getOrThrow(first.id).state).toBe('review')
+
+    looping.add('p1')
+    orch.reschedule()
+
+    // The parked review is accepted and the backlog continues immediately.
+    expect(tasks.getOrThrow(first.id).state).toBe('done')
+    expect(orch.latestRun(first.id)!.events.find((e) => e.kind === 'accepted')?.detail).toBe(
+      'Auto-approved by looping mode'
+    )
+    expect(tasks.getOrThrow(second.id).state).toBe('running')
+  })
+
+  it('looping mode does not bypass questions: needs-input still blocks the loop', () => {
+    const orch = makeOrchestrator({ isProjectLooping: () => true })
+    const first = makeTask('p1')
+    const second = makeTask('p1')
+    orch.delegate(first.id)
+
+    sessions.turn(sessions.last(), status('question', 'which auth provider?'))
+
+    // The question escalates to the user and no new work is picked up meanwhile.
+    expect(tasks.getOrThrow(first.id).state).toBe('needs-input')
+    expect(tasks.getOrThrow(second.id).state).toBe('draft')
+    expect(sessions.sessions).toHaveLength(1)
+
+    // Once answered and completed, the loop continues with the next task.
+    orch.answer(first.id, 'use OAuth')
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    expect(tasks.getOrThrow(first.id).state).toBe('done')
+    expect(tasks.getOrThrow(second.id).state).toBe('running')
+  })
+
+  it('looping mode moves past a stopped task without ever restarting it', async () => {
+    const orch = makeOrchestrator({ isProjectLooping: () => true })
+    const first = makeTask('p1')
+    const second = makeTask('p1')
+    orch.delegate(first.id)
+
+    await orch.stop(first.id)
+
+    // The stopped task stays failed (only drafts are picked up), and the loop
+    // carries on with the rest of the backlog.
+    expect(tasks.getOrThrow(first.id).state).toBe('failed')
+    expect(tasks.getOrThrow(second.id).state).toBe('running')
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    expect(tasks.getOrThrow(first.id).state).toBe('failed')
+    expect(tasks.getOrThrow(second.id).state).toBe('done')
   })
 
   it('runs with the CLI default model when the task does not pick one', () => {

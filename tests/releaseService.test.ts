@@ -35,7 +35,16 @@ function initRepo(): string {
 }
 
 function projectFor(repo: string): Project {
-  return { id: 'p1', name: 'Demo', path: repo, tags: [], github: null, links: [], createdAt: '2026-01-01' }
+  return {
+    id: 'p1',
+    name: 'Demo',
+    path: repo,
+    tags: [],
+    github: null,
+    links: [],
+    looping: false,
+    createdAt: '2026-01-01'
+  }
 }
 
 describe('ReleaseService.getPreview', () => {
