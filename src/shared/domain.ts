@@ -235,6 +235,13 @@ export interface TaskDefinition {
   stepBudget: number
   /** Maximum corrective follow-ups before a failing run escalates. */
   recoveryBudget: number
+  /**
+   * When true, a run that completes with a passing quality gate is accepted
+   * automatically instead of waiting in review for the user's feedback. Runs
+   * that escalate a question, exhaust recovery, or blow the step budget still
+   * reach the user; auto-approve only skips the final sign-off.
+   */
+  autoApprove: boolean
   /** Feedback from the last send-back review, included in the next briefing. */
   reviewFeedback: string | null
   /**
@@ -256,6 +263,7 @@ export interface TaskInput {
   model?: string | null
   stepBudget?: number
   recoveryBudget?: number
+  autoApprove?: boolean
 }
 
 export interface TaskPatch {
@@ -266,6 +274,7 @@ export interface TaskPatch {
   model?: string | null
   stepBudget?: number
   recoveryBudget?: number
+  autoApprove?: boolean
 }
 
 // ---------- Agent run loop ----------

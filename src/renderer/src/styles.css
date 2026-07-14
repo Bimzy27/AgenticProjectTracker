@@ -920,6 +920,11 @@ tr.line-del,
   flex: 1;
   min-width: 200px;
 }
+/* Checkboxes stay snug against their toggle label instead of stretching. */
+.form-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  min-width: 0;
+}
 label.form-row {
   display: flex;
   flex-direction: column;

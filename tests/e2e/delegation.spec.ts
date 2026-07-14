@@ -302,3 +302,35 @@ test('the active tasks view monitors running work per project and opens the task
   await page.getByRole('button', { name: '◉ Active tasks' }).click()
   await expect(page.getByText('No active tasks.')).toBeVisible()
 })
+
+test('an auto-approve task completes straight to done without a review step', async () => {
+  scriptAgent(
+    `Done.\n${statusBlock(
+      'complete',
+      'Shipped the auto-approved change',
+      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"'
+    )}`
+  )
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Hands-off change')
+  await page.getByPlaceholder(/What should the agent build/).fill('Make a change and sign off on it')
+  // Enable auto-approve so a clean completion is accepted without user review.
+  await page.locator('.modal').getByText('Auto-approve').click()
+  await page.getByRole('button', { name: 'Create' }).click()
+  await expect(page.locator('.task-detail-header').getByText('auto-approve')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+
+  // The run never parks in review: the task lands in done and is archived,
+  // leaving the backlog, and no attention item is raised for it.
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+  await expect(page.locator('.task-detail-header .badge.task-archived')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toHaveCount(0)
+  await expect(page.locator('.attention-count')).toHaveCount(0)
+
+  // The run timeline records the auto-approval.
+  await expect(page.locator('.run-timeline').getByText('Auto-approved on completion')).toBeVisible()
+})
+

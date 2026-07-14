@@ -6,6 +6,7 @@ A desktop mission control for multiple long running projects: delegate build tas
 
 - **Agent delegation**: give each project a backlog of tasks (purpose plus acceptance criteria) and delegate them to Claude agents.
   A run loop supervises each agent session end to end: structured status reporting, bounded automatic recovery from failures, step and token budgets, and a review step where you accept the result or send it back with feedback.
+  Individual tasks can opt into auto-approve, accepting a clean completion without the review step.
 - **Attention inbox**: one cross-project queue for everything that needs you - agent questions, tool permission requests, exhausted retries, and completed runs awaiting review - all answerable in place.
 - **Dashboard**: every tracked project at a glance - branch, dirty state, delegated task states with live progress, agent sessions needing attention, pipeline status, filterable by category.
 - **Agent sessions**: discovers Claude CLI sessions per project, shows transcripts live, lets you respond to waiting sessions, and toggles permission modes (plan / accept edits / auto) on sessions managed by the app.

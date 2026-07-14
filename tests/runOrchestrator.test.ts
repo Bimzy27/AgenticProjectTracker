@@ -169,6 +169,44 @@ describe('RunOrchestrator', () => {
     expect(orch.latestRun(task.id)!.state).toBe('done')
   })
 
+  it('auto-approves a completed run instead of parking it in review', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { autoApprove: true })
+    orch.delegate(task.id)
+    const session = sessions.last()
+
+    sessions.turn(session, COMPLETE_OK)
+
+    // The task skips review and lands in done, archived automatically.
+    const stored = tasks.getOrThrow(task.id)
+    expect(stored.state).toBe('done')
+    expect(stored.archived).toBe(true)
+    const run = orch.latestRun(task.id)!
+    expect(run.state).toBe('done')
+    expect(run.endedAt).not.toBeNull()
+    // The completion is still recorded, and an accepted event marks the auto-approve.
+    expect(run.completion).toMatchObject({ summary: 'built it', gatePassed: true })
+    const accepted = run.events.find((e) => e.kind === 'accepted')
+    expect(accepted?.detail).toBe('Auto-approved on completion')
+  })
+
+  it('does not auto-approve a run that escalates a question', () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { autoApprove: true })
+    orch.delegate(task.id)
+    const session = sessions.last()
+
+    // A question always reaches the user, even under auto-approve.
+    sessions.turn(session, status('question', 'which auth provider?'))
+    expect(tasks.getOrThrow(task.id).state).toBe('needs-input')
+    expect(orch.latestRun(task.id)!.state).toBe('needs-input')
+
+    // Once answered and completed, auto-approve still finishes it without review.
+    orch.answer(task.id, 'use OAuth')
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    expect(tasks.getOrThrow(task.id).state).toBe('done')
+  })
+
   it('runs with the CLI default model when the task does not pick one', () => {
     const orch = makeOrchestrator()
     orch.delegate(makeTask().id)

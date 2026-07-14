@@ -76,6 +76,7 @@ export class TaskService {
       model: normalizeModel(input.model),
       stepBudget: input.stepBudget ?? DEFAULT_STEP_BUDGET,
       recoveryBudget: input.recoveryBudget ?? DEFAULT_RECOVERY_BUDGET,
+      autoApprove: input.autoApprove ?? false,
       reviewFeedback: null,
       archived: false,
       createdAt: now,
@@ -108,6 +109,7 @@ export class TaskService {
     if (patch.recoveryBudget !== undefined) {
       task.recoveryBudget = requireNonNegative(patch.recoveryBudget, 'Recovery budget')
     }
+    if (patch.autoApprove !== undefined) task.autoApprove = patch.autoApprove
     task.updatedAt = new Date().toISOString()
     this.commit(task.projectId)
     return task
@@ -210,17 +212,23 @@ export class TaskService {
     }
     const parsed = JSON.parse(raw) as {
       tasks?: Array<
-        Omit<TaskDefinition, 'archived' | 'model'> & { archived?: boolean; model?: string | null }
+        Omit<TaskDefinition, 'archived' | 'model' | 'autoApprove'> & {
+          archived?: boolean
+          model?: string | null
+          autoApprove?: boolean
+        }
       >
     }
     const stored = Array.isArray(parsed.tasks) ? parsed.tasks : []
     // Migrations: files written before archiving existed lack the flag (done
     // tasks are swept into the archive to match the auto-archive-on-completion
-    // rule), and files written before model selection default to the CLI model.
+    // rule), files written before model selection default to the CLI model, and
+    // files written before auto-approve default to requiring manual review.
     this.tasks = stored.map((t) => ({
       ...t,
       archived: t.archived ?? t.state === 'done',
-      model: t.model ?? null
+      model: t.model ?? null,
+      autoApprove: t.autoApprove ?? false
     }))
   }
 

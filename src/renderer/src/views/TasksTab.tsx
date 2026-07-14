@@ -215,6 +215,14 @@ function TaskDetail({
               </span>
             )}
             <span className="badge">{MODES.find((m) => m.id === task.mode)?.label ?? task.mode}</span>
+            {task.autoApprove && (
+              <span
+                className="badge"
+                title="Completed runs are accepted automatically, without waiting for your review"
+              >
+                auto-approve
+              </span>
+            )}
             {task.model !== null && (
               <span className="badge" title={`Runs use the '${task.model}' model`}>
                 {agentModelLabel(task.model)}
@@ -519,6 +527,7 @@ function TaskDialog({
   const [useCustomModel, setUseCustomModel] = useState(!storedIsPreset)
   const [stepBudget, setStepBudget] = useState(initial?.stepBudget ?? 30)
   const [recoveryBudget, setRecoveryBudget] = useState(initial?.recoveryBudget ?? 3)
+  const [autoApprove, setAutoApprove] = useState(initial?.autoApprove ?? false)
   const [error, setError] = useState<string | null>(null)
 
   const save = (): void => {
@@ -532,7 +541,8 @@ function TaskDialog({
       mode,
       model: useCustomModel ? customModel : model,
       stepBudget,
-      recoveryBudget
+      recoveryBudget,
+      autoApprove
     }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
 
@@ -617,6 +627,13 @@ function TaskDialog({
               onChange={(e) => setRecoveryBudget(Number(e.target.value))}
             />
           </label>
+        </div>
+        <div className="form-row">
+          <label className="toggle">
+            <input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} />
+            Auto-approve
+          </label>
+          <InfoTip text="Accept the task automatically when the run completes with a passing quality gate, skipping the review step. Runs that ask a question, exhaust recovery, or exceed the step budget still come to you." />
         </div>
         {error && <p className="error-text">{error}</p>}
         <div className="modal-actions">

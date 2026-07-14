@@ -34,6 +34,7 @@ function task(
     model: null,
     stepBudget: 30,
     recoveryBudget: 3,
+    autoApprove: false,
     reviewFeedback: null,
     archived: false,
     createdAt: '2026-07-01T00:00:00Z',

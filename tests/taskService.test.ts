@@ -29,6 +29,7 @@ describe('TaskService', () => {
       model: null,
       stepBudget: 30,
       recoveryBudget: 3,
+      autoApprove: false,
       order: 0
     })
     expect(task.transitions).toEqual([{ state: 'draft', at: task.createdAt }])
@@ -74,6 +75,29 @@ describe('TaskService', () => {
     service.update(task.id, { model: '  ' })
     expect(service.getOrThrow(task.id).model).toBeNull()
     expect(service.create('p1', { ...input, model: '' }).model).toBeNull()
+  })
+
+  it('stores and toggles the auto-approve flag', () => {
+    const auto = service.create('p1', { ...input, autoApprove: true })
+    expect(auto.autoApprove).toBe(true)
+
+    const manual = service.create('p1', input)
+    expect(manual.autoApprove).toBe(false)
+
+    service.update(manual.id, { autoApprove: true })
+    expect(service.getOrThrow(manual.id).autoApprove).toBe(true)
+    service.update(manual.id, { autoApprove: false })
+    expect(service.getOrThrow(manual.id).autoApprove).toBe(false)
+  })
+
+  it('defaults auto-approve off for tasks persisted before it existed', () => {
+    const task = service.create('p1', input)
+    const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))
+    for (const stored of file.tasks) delete stored.autoApprove
+    writeFileSync(join(userData, 'tasks.json'), JSON.stringify(file), 'utf8')
+
+    const reloaded = new TaskService(userData, sink as TaskEventSink)
+    expect(reloaded.getOrThrow(task.id).autoApprove).toBe(false)
   })
 
   it('defaults the model for tasks persisted before model selection existed', () => {

@@ -205,10 +205,15 @@ export class RunOrchestrator {
     const task = this.tasks.getOrThrow(taskId)
     if (task.state !== 'review') throw new Error('Task is not awaiting review')
     const run = this.requireRun(taskId)
-    this.endRun(run, 'done', 'accepted', 'Accepted by the user')
-    this.tasks.setReviewFeedback(taskId, null)
-    this.tasks.setState(taskId, 'done')
+    this.finishAccepted(run, task, 'Accepted by the user')
     this.pump()
+  }
+
+  /** Move a reviewed run and its task to done. Shared by manual and auto-approve accepts. */
+  private finishAccepted(run: RunRecord, task: TaskDefinition, detail: string): void {
+    this.endRun(run, 'done', 'accepted', detail)
+    this.tasks.setReviewFeedback(task.id, null)
+    this.tasks.setState(task.id, 'done')
   }
 
   /** Send a reviewed task back: re-queue it with feedback for the next briefing. */
@@ -518,6 +523,9 @@ export class RunOrchestrator {
     this.pushEvent(run, 'completed', report.note)
     this.tasks.setState(task.id, 'review')
     this.commit(run)
+    // Auto-approve tasks skip the user's sign-off: a clean completion (the gate
+    // passed, which is the only way we reach here) is accepted straight away.
+    if (task.autoApprove) this.finishAccepted(run, task, 'Auto-approved on completion')
     this.pump()
   }
 
