@@ -26,6 +26,7 @@ import type {
   TaskDefinition,
   TaskInput,
   TaskPatch,
+  ThemePreference,
   TrafficMetrics,
   TranscriptItem,
   WorkflowRun,
@@ -137,6 +138,15 @@ export interface TrackerApi {
   clearGithubToken(): Promise<void>
   /** Returns true when a token was found and imported from the gh CLI. */
   importGhCliToken(): Promise<boolean>
+
+  // Settings / appearance
+  /** The persisted UI theme preference; 'system' follows the OS. */
+  getThemePreference(): Promise<ThemePreference>
+  /**
+   * Persist the UI theme preference and apply it immediately, restyling the
+   * app (and, on desktop, the native window chrome) without a restart.
+   */
+  setThemePreference(pref: ThemePreference): Promise<void>
 
   // About
   /**

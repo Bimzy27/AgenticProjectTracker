@@ -538,6 +538,17 @@ export interface GithubAuthState {
   source: 'vault' | 'gh-cli' | null
 }
 
+// ---------- App settings ----------
+
+/**
+ * UI color theme preference: an explicit light or dark theme, or 'system' to
+ * follow the operating system's preference, including live changes to it.
+ */
+export type ThemePreference = 'light' | 'dark' | 'system'
+
+/** All theme preferences, in the order the settings UI offers them. */
+export const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system']
+
 // ---------- Release analytics ----------
 
 export interface ReleaseAsset {

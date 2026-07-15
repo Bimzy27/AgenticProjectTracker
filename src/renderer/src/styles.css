@@ -937,8 +937,9 @@ tr.line-del,
   flex: 1;
   min-width: 200px;
 }
-/* Checkboxes stay snug against their toggle label instead of stretching. */
-.form-row input[type='checkbox'] {
+/* Checkboxes and radios stay snug against their toggle label instead of stretching. */
+.form-row input[type='checkbox'],
+.form-row input[type='radio'] {
   flex: 0 0 auto;
   min-width: 0;
 }

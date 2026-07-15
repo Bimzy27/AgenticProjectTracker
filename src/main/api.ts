@@ -4,7 +4,8 @@ import type {
   SessionCurationPatch,
   SessionPermissionMode,
   TaskInput,
-  TaskPatch
+  TaskPatch,
+  ThemePreference
 } from '@shared/domain'
 import type { TrackerApi } from '@shared/ipc'
 import type { ActiveTasksService } from './services/ActiveTasksService'
@@ -19,6 +20,7 @@ import type { ProjectStore } from './services/ProjectStore'
 import type { ReleaseService } from './services/ReleaseService'
 import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
+import type { SettingsStore } from './services/SettingsStore'
 import type { TaskService } from './services/TaskService'
 import type { TokenStore } from './services/TokenStore'
 import type { UsageService } from './services/UsageService'
@@ -39,6 +41,13 @@ export interface ApiDeps {
   tokens: TokenStore
   editor: EditorService
   usage: UsageService
+  settings: SettingsStore
+  /**
+   * Applies a theme preference to the running app, injected by the
+   * composition root (sets Electron's nativeTheme.themeSource, which flips
+   * prefers-color-scheme in the renderer and restyles the native chrome).
+   */
+  applyTheme: (pref: ThemePreference) => void
   /** App version string, injected by the composition root (app.getVersion()). */
   appVersion: string
   /** Desktop directory picker, injected by the composition root. */
@@ -164,6 +173,13 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     setGithubToken: async (token: string) => deps.tokens.setToken(token),
     clearGithubToken: async () => deps.tokens.clearToken(),
     importGhCliToken: async () => deps.tokens.importFromGhCli(),
+
+    // Settings / appearance
+    getThemePreference: async () => deps.settings.getTheme(),
+    setThemePreference: async (pref: ThemePreference) => {
+      deps.settings.setTheme(pref) // validates and persists before applying
+      deps.applyTheme(pref)
+    },
 
     // About
     getAboutInfo: async () => ({ appVersion: deps.appVersion, usage: await deps.usage.getUsage() })

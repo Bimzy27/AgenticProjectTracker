@@ -221,6 +221,29 @@ test('settings shows the not-configured GitHub auth state', async () => {
   await expect(page.getByText(/Status: not configured/)).toBeVisible()
 })
 
+test('theme setting switches dark mode and persists the preference', async () => {
+  // Playwright emulates colorScheme (default light) on every page, which would
+  // mask the app's nativeTheme-driven theme. Clear the emulation so the
+  // renderer reflects the real value derived from the theme setting.
+  await page.emulateMedia({ colorScheme: null })
+
+  // Still on the Settings view; a fresh install follows the OS preference.
+  await expect(page.getByRole('radio', { name: 'System' })).toBeChecked()
+
+  await page.getByRole('radio', { name: 'Dark' }).check()
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(13, 17, 23)')
+
+  await page.getByRole('radio', { name: 'Light' }).check()
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(246, 247, 249)')
+
+  // The choice is stored in the main process, so it survives a restart.
+  const settings = JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'))
+  expect(settings.theme).toBe('light')
+
+  // Back to following the OS for the remaining tests.
+  await page.getByRole('radio', { name: 'System' }).check()
+})
+
 test('about shows the app version and the Claude usage budget', async () => {
   await page.getByRole('button', { name: 'ⓘ About' }).click()
   const version = JSON.parse(readFileSync('package.json', 'utf8')).version as string

@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
-import type { GithubAuthState } from '@shared/domain'
+import { THEME_PREFERENCES } from '@shared/domain'
+import type { GithubAuthState, ThemePreference } from '@shared/domain'
 import { tracker } from '../tracker'
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  light: 'Light',
+  dark: 'Dark',
+  system: 'System'
+}
 
 export function SettingsView(): React.JSX.Element {
   const [auth, setAuth] = useState<GithubAuthState | null>(null)
+  const [theme, setTheme] = useState<ThemePreference | null>(null)
   const [token, setToken] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -12,6 +20,14 @@ export function SettingsView(): React.JSX.Element {
     tracker.invoke('getGithubAuthState').then(setAuth).catch(console.error)
   }
   useEffect(refresh, [])
+  useEffect(() => {
+    tracker.invoke('getThemePreference').then(setTheme).catch(console.error)
+  }, [])
+
+  const chooseTheme = (pref: ThemePreference): void => {
+    setTheme(pref)
+    tracker.invoke('setThemePreference', pref).catch(console.error)
+  }
 
   const act = (fn: () => Promise<string>): void => {
     setMessage(null)
@@ -29,6 +45,28 @@ export function SettingsView(): React.JSX.Element {
       <header className="view-header">
         <h1>Settings</h1>
       </header>
+
+      <section className="settings-section">
+        <h2>Appearance</h2>
+        <p className="muted">
+          Color theme for the app. System follows the operating system's light/dark preference and switches
+          automatically when it changes.
+        </p>
+        <div className="form-row">
+          {THEME_PREFERENCES.map((pref) => (
+            <label key={pref} className="toggle">
+              <input
+                type="radio"
+                name="theme"
+                disabled={theme === null}
+                checked={theme === pref}
+                onChange={() => chooseTheme(pref)}
+              />
+              {THEME_LABELS[pref]}
+            </label>
+          ))}
+        </div>
+      </section>
 
       <section className="settings-section">
         <h2>GitHub access</h2>

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import { BrowserWindow, Notification, app, dialog, safeStorage, shell } from 'electron'
+import { BrowserWindow, Notification, app, dialog, nativeTheme, safeStorage, shell } from 'electron'
 import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
@@ -19,6 +19,7 @@ import { RunOrchestrator } from './services/RunOrchestrator'
 import { SessionService } from './services/SessionService'
 import type { QueryFn } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
+import { SettingsStore } from './services/SettingsStore'
 import { TaskService } from './services/TaskService'
 import { TokenStore } from './services/TokenStore'
 import { UsageService } from './services/UsageService'
@@ -77,6 +78,10 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   const userDataDir = app.getPath('userData')
 
   const store = new ProjectStore(userDataDir)
+  // Apply the saved theme before the window exists so the first paint and
+  // the native chrome already use it.
+  const settings = new SettingsStore(userDataDir)
+  nativeTheme.themeSource = settings.getTheme()
   const git = new GitService()
   // APT_CLAUDE_HOME is a test seam; undefined falls back to ~/.claude
   const storage = new SessionStorage(process.env.APT_CLAUDE_HOME)
@@ -219,6 +224,10 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     tokens,
     editor,
     usage,
+    settings,
+    applyTheme: (pref) => {
+      nativeTheme.themeSource = pref
+    },
     appVersion: app.getVersion(),
     pickDirectory: async () => {
       // Test seam: E2E tests cannot drive the native dialog.
