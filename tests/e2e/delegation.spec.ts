@@ -85,6 +85,8 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
 
   // Create the task from the project's Tasks tab, pinning it to the Opus model.
   await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  // The Tasks tab labels the current branch delegated agents operate on.
+  await expect(page.locator('.task-branch')).toHaveText(/⎇\s*main/)
   await page.getByRole('button', { name: '+ New task' }).click()
   await page.getByPlaceholder('Task title').fill('Greeting feature')
   await page.getByPlaceholder(/What should the agent build/).fill('Add a friendly greeting module')

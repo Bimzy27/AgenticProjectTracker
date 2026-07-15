@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
   Project,
+  ProjectStatusSummary,
   RunRecord,
   SessionPermissionMode,
   TaskDefinition,
@@ -54,10 +55,30 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
   const [view, setView] = useState<TaskListView>(DEFAULT_TASK_LIST_VIEW)
   const [error, setError] = useState<string | null>(null)
 
+  const [branch, setBranch] = useState<string | null>(null)
+
   const load = useCallback(() => {
     tracker.invoke('listTasks', project.id).then(setTasks).catch(console.error)
   }, [project.id])
   useEffect(load, [load])
+
+  // The current branch is the one delegated agents operate on; keep it live.
+  useEffect(() => {
+    tracker
+      .invoke('getProjectStatus', project.id)
+      .then((status) => setBranch(status.branch))
+      .catch(console.error)
+  }, [project.id])
+
+  useTrackerEvent(
+    'project-status-changed',
+    useCallback(
+      (status: ProjectStatusSummary) => {
+        if (status.projectId === project.id) setBranch(status.branch)
+      },
+      [project.id]
+    )
+  )
 
   useTrackerEvent(
     'tasks-changed',
@@ -108,6 +129,9 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
             />
             archived
           </label>
+          <span className="stat task-branch" title="Current branch delegated agents work on">
+            ⎇ {branch ?? '…'}
+          </span>
         </div>
         <div className="toolbar task-view-controls">
           <input

@@ -1152,6 +1152,13 @@ label.form-row {
   flex-direction: column;
   gap: 6px;
 }
+.task-branch {
+  margin-left: auto;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The list's own 6px gap spaces the stacked toolbar rows; the default 12px would double it. */
 .task-list .toolbar {
   margin-bottom: 0;
