@@ -27,6 +27,12 @@ interface RepoPollState {
   summary: PipelineStatusSummary
   /** run id -> status we last notified for, to de-duplicate notifications. */
   notified: Map<number, RunStatus>
+  /**
+   * False until the first successful fetch. That snapshot is a baseline, not a
+   * transition: runs that were already failing before the app started must not
+   * spam notifications on launch (the pipelines UI shows them instead).
+   */
+  baselined: boolean
   backoffMs: number
   nextPollAt: number
 }
@@ -40,7 +46,8 @@ export interface PipelineEventSink {
 /**
  * Polls GitHub Actions per tracked repo with ETag conditional requests and
  * per-repo backoff (D5), diffs run states, and notifies on transitions to
- * failure/action_required exactly once per run+status.
+ * failure/action_required exactly once per run+status. The first fetch after
+ * startup is a silent baseline so pre-existing failures do not spam the user.
  */
 export class PipelineService {
   private readonly state = new Map<string, RepoPollState>()
@@ -125,6 +132,8 @@ export class PipelineService {
   }
 
   private raiseNotifications(project: Project, runs: WorkflowRun[], repoState: RepoPollState): void {
+    const isBaseline = !repoState.baselined
+    repoState.baselined = true
     for (const run of runs) {
       if (!ATTENTION_STATUSES.has(run.status)) {
         // A rerun that recovered may fail again later; forget the old notification.
@@ -133,7 +142,8 @@ export class PipelineService {
       }
       if (repoState.notified.get(run.id) === run.status) continue
       repoState.notified.set(run.id, run.status)
-      this.sink.notifyRun(project, run)
+      // Baseline runs are recorded as seen but stay silent (see RepoPollState.baselined).
+      if (!isBaseline) this.sink.notifyRun(project, run)
     }
   }
 
@@ -145,6 +155,7 @@ export class PipelineService {
         runs: [],
         summary: { overall: 'unknown', failingRuns: 0, updatedAt: null },
         notified: new Map(),
+        baselined: false,
         backoffMs: 0,
         nextPollAt: 0
       }

@@ -99,22 +99,51 @@ describe('PipelineService', () => {
     expect(github.conditionalGet).toHaveBeenCalledTimes(2)
   })
 
+  it('does not notify for failures already present when the app starts', async () => {
+    // A fresh service instance is what an app launch produces; runs that failed
+    // before startup are old news and must not spam desktop notifications.
+    const staleFailures = [
+      ghRun({ id: 1, conclusion: 'failure' }),
+      ghRun({ id: 2, name: 'Deploy', conclusion: 'failure' }),
+      ghRun({ id: 3, name: 'Nightly', status: 'waiting', conclusion: null })
+    ]
+    github.conditionalGet.mockResolvedValueOnce(response(staleFailures, 'e1'))
+    await service.tick(1_000)
+    expect(sink.notifyRun).not.toHaveBeenCalled()
+
+    // the same stale failures on the next poll stay silent too
+    github.conditionalGet.mockResolvedValueOnce(response(staleFailures, 'e2'))
+    await service.tick(200_000)
+    expect(sink.notifyRun).not.toHaveBeenCalled()
+
+    // a run that fails after startup still notifies
+    github.conditionalGet.mockResolvedValueOnce(
+      response([ghRun({ id: 4, conclusion: 'failure' }), ...staleFailures], 'e3')
+    )
+    await service.tick(400_000)
+    expect(sink.notifyRun).toHaveBeenCalledOnce()
+  })
+
   it('notifies on failure exactly once and re-notifies only after recovery', async () => {
+    // baseline poll: everything green
+    github.conditionalGet.mockResolvedValueOnce(response([ghRun({ conclusion: 'success' })], 'e0'))
+    await service.tick(1_000)
+
     const failing = ghRun({ conclusion: 'failure' })
     github.conditionalGet.mockResolvedValueOnce(response([failing], 'e1'))
-    await service.tick(1_000)
+    await service.tick(200_000)
     expect(sink.notifyRun).toHaveBeenCalledOnce()
 
     // same failure polled again: no duplicate notification
     github.conditionalGet.mockResolvedValueOnce(response([failing], 'e2'))
-    await service.tick(200_000)
+    await service.tick(400_000)
     expect(sink.notifyRun).toHaveBeenCalledOnce()
 
     // recovery then a new failure: notify again
     github.conditionalGet.mockResolvedValueOnce(response([ghRun({ conclusion: 'success' })], 'e3'))
-    await service.tick(400_000)
-    github.conditionalGet.mockResolvedValueOnce(response([failing], 'e4'))
     await service.tick(600_000)
+    github.conditionalGet.mockResolvedValueOnce(response([failing], 'e4'))
+    await service.tick(800_000)
     expect(sink.notifyRun).toHaveBeenCalledTimes(2)
   })
 
