@@ -26,7 +26,12 @@ export class GithubClient {
 
   constructor(
     private readonly tokens: TokenStore,
-    private readonly onRateLimit?: (state: RateLimitState) => void
+    private readonly onRateLimit?: (state: RateLimitState) => void,
+    /**
+     * API base URL override, injected from the composition root
+     * (APT_GITHUB_API test seam); undefined uses the real GitHub API.
+     */
+    private readonly baseUrl?: string
   ) {}
 
   isConfigured(): boolean {
@@ -73,7 +78,7 @@ export class GithubClient {
     const token = this.tokens.getToken()
     if (!token) throw new GithubNotConfiguredError()
     if (!this.octokit || this.tokenInUse !== token) {
-      this.octokit = new Octokit({ auth: token })
+      this.octokit = new Octokit({ auth: token, ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}) })
       this.tokenInUse = token
     }
     return this.octokit

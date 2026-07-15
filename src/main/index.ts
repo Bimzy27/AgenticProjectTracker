@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { BrowserWindow, Notification, app, dialog, nativeTheme, safeStorage, shell } from 'electron'
@@ -145,15 +146,28 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     encrypt: (text) => safeStorage.encryptString(text),
     decrypt: (buf) => safeStorage.decryptString(buf)
   })
-  const github = new GithubClient(tokens, (state) => emitTrackerEvent('rate-limit-changed', state))
+  const github = new GithubClient(
+    tokens,
+    (state) => emitTrackerEvent('rate-limit-changed', state),
+    // APT_GITHUB_API is a test seam; undefined falls back to the real GitHub API.
+    process.env.APT_GITHUB_API
+  )
 
-  const pipelines = new PipelineService(github, store, {
-    pipelineUpdated: (projectId, summary, runs) => {
-      emitTrackerEvent('pipeline-updated', { projectId, summary, runs })
-      void pushProjectStatus(projectId)
+  // APT_PIPELINE_POLL_MS is a test seam; unset (or invalid) falls back to the
+  // production poll interval so E2E runs can drive status transitions quickly.
+  const pollMsOverride = Number(process.env.APT_PIPELINE_POLL_MS)
+  const pipelines = new PipelineService(
+    github,
+    store,
+    {
+      pipelineUpdated: (projectId, summary, runs) => {
+        emitTrackerEvent('pipeline-updated', { projectId, summary, runs })
+        void pushProjectStatus(projectId)
+      },
+      notifyRun: (project: Project, run: WorkflowRun) => notifyPipelineRun(project, run)
     },
-    notifyRun: (project: Project, run: WorkflowRun) => notifyPipelineRun(project, run)
-  })
+    Number.isFinite(pollMsOverride) && pollMsOverride > 0 ? pollMsOverride : undefined
+  )
 
   const analytics = new AnalyticsService(new GithubMetricsProvider(github))
   const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
@@ -255,6 +269,21 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   }
 
   function notifyPipelineRun(project: Project, run: WorkflowRun): void {
+    // APT_NOTIFICATION_LOG is a test seam: native desktop notifications cannot
+    // be observed from E2E, so append them to a JSONL file instead of showing
+    // them. Unset falls back to real notifications.
+    if (process.env.APT_NOTIFICATION_LOG) {
+      appendFileSync(
+        process.env.APT_NOTIFICATION_LOG,
+        JSON.stringify({
+          projectId: project.id,
+          runId: run.id,
+          workflowName: run.workflowName,
+          status: run.status
+        }) + '\n'
+      )
+      return
+    }
     if (!Notification.isSupported()) return
     const label = run.status === 'failure' ? 'failed' : 'needs attention'
     const notification = new Notification({
