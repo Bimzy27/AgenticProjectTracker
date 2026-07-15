@@ -906,15 +906,70 @@ tr.line-del,
 }
 .bars {
   display: flex;
-  align-items: flex-end;
   gap: 3px;
   height: 120px;
 }
-.bar {
+/* Full-height hit target per bar: hovering anywhere in the day's column works. */
+.bar-slot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
   flex: 1;
+  min-width: 4px;
+  cursor: default;
+}
+.bar {
+  width: 100%;
   background: var(--accent);
   border-radius: 2px 2px 0 0;
-  min-width: 4px;
+  pointer-events: none;
+}
+.bar-slot:hover .bar,
+.bar-slot:focus-visible .bar {
+  filter: brightness(1.25);
+}
+.bar-slot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The bubble floats beside the hovered bar, inside the plot area, so it never
+   collides with the chart titles above. */
+.bar-tip {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 5px);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: max-content;
+  padding: 6px 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 20;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.bar-slot:hover .bar-tip,
+.bar-slot:focus-visible .bar-tip {
+  visibility: visible;
+  opacity: 1;
+}
+.bar-tip-value {
+  font-weight: 600;
+}
+.bar-tip-detail {
+  color: var(--text-muted);
+}
+/* Bars in the right third flip the bubble to their left so it never clips the panel. */
+.bar-tip-end .bar-tip {
+  left: auto;
+  right: calc(100% + 5px);
 }
 
 /* Settings */

@@ -107,7 +107,13 @@ function ReleaseCard({ release }: { release: ReleaseInfo }): React.JSX.Element {
   )
 }
 
-/** Minimal dependency-free bar chart. */
+/**
+ * Minimal dependency-free bar chart. Each bar sits in a full-height slot that
+ * acts as the hover/focus hit target and carries an in-DOM tooltip with the
+ * day's details; native `title` tooltips are unreliable inside Electron and
+ * invisible to keyboard users, so the bubble is our own (same pattern as
+ * InfoTip and the sidebar usage meter).
+ */
 function TrafficChart({
   title,
   tip,
@@ -119,6 +125,7 @@ function TrafficChart({
 }): React.JSX.Element {
   const max = Math.max(1, ...points.map((p) => p.count))
   const total = points.reduce((sum, p) => sum + p.count, 0)
+  const unit = title.toLowerCase()
   return (
     <div className="traffic-chart">
       <h3>
@@ -129,18 +136,38 @@ function TrafficChart({
         <div className="empty-state">No data.</div>
       ) : (
         <div className="bars">
-          {points.map((p) => (
-            <div
-              key={p.date}
-              className="bar"
-              style={{ height: `${Math.max(4, (p.count / max) * 100)}%` }}
-              title={`${p.date.slice(0, 10)}: ${p.count} (${p.uniques} unique)`}
-            />
-          ))}
+          {points.map((p, i) => {
+            const count = `${p.count} ${p.count === 1 ? unit.replace(/s$/, '') : unit}`
+            return (
+              <div
+                key={p.date}
+                className={`bar-slot ${tipAlign(i, points.length)}`}
+                tabIndex={0}
+                aria-label={`${formatDay(p.date)}: ${count}, ${p.uniques} unique`}
+              >
+                <div className="bar" style={{ height: `${Math.max(4, (p.count / max) * 100)}%` }} />
+                <div className="bar-tip" role="tooltip">
+                  <span className="bar-tip-value">{count}</span>
+                  <span className="bar-tip-detail">{p.uniques} unique</span>
+                  <span className="bar-tip-detail">{formatDay(p.date)}</span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
   )
+}
+
+/** Bars in the right third of the chart open their tooltip to the left. */
+function tipAlign(index: number, count: number): string {
+  return index >= (2 * count) / 3 ? 'bar-tip-end' : ''
+}
+
+/** GitHub traffic timestamps are midnight UTC; format in UTC to keep the day. */
+function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function formatBytes(bytes: number): string {
