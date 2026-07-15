@@ -86,7 +86,7 @@ export function ProjectView({
             />
             Looping
           </label>
-          <InfoTip text="Looping mode keeps agents working through this project's backlog: when a task's run completes it is approved automatically (skipping your review, including tasks already waiting in review), and the next backlog task is delegated on its own. Questions and failures still come to you. Off by default." />
+          <InfoTip text="Looping mode keeps agents working through this project's backlog: when a task's run completes it is approved automatically (skipping your review, including tasks already waiting in review), and the next backlog task is delegated on its own. Delegated runs' bash commands are also auto-approved so the loop runs unattended. Questions and failures still come to you. Off by default." />
           <label className="toggle">
             <input
               type="checkbox"

@@ -185,6 +185,46 @@ describe('SessionService', () => {
     expect(service.listSessions(projectId)[0].state).toBe('running')
   })
 
+  it('auto-approves Bash for owned run-loop sessions when the project is looping', async () => {
+    store.update(projectId, { looping: true })
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    const summary = service.startOwnedSession(
+      projectId,
+      'the briefing',
+      'acceptEdits',
+      null,
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
+      observer
+    )
+    const canUseTool = queryMock.mock.calls[0][0].options.canUseTool
+
+    // Bash is approved immediately without ever stalling in a permission prompt.
+    await expect(canUseTool('Bash', { command: 'npm test' })).resolves.toMatchObject({
+      behavior: 'allow'
+    })
+    await settle()
+    expect(service.listSessions(projectId).find((s) => s.id === summary.id)?.state).not.toBe(
+      'permission-prompt'
+    )
+    expect(service.attentionCounts(projectId).needingAttention).toBe(0)
+
+    // Other tools still prompt: looping only auto-approves bash commands.
+    void canUseTool('WebFetch', { url: 'https://example.com' })
+    await settle()
+    expect(service.listSessions(projectId).find((s) => s.id === summary.id)?.state).toBe('permission-prompt')
+  })
+
+  it('still prompts for Bash on manual sessions even when the project is looping', async () => {
+    // Looping auto-approval is scoped to the unattended run loop; a manual
+    // session has a user present, so its bash prompts must not be skipped.
+    store.update(projectId, { looping: true })
+    service.startSession(projectId, 'manual work', 'acceptEdits')
+    const canUseTool = queryMock.mock.calls[0][0].options.canUseTool
+    void canUseTool('Bash', { command: 'rm -rf build' })
+    await settle()
+    expect(service.listSessions(projectId)[0].state).toBe('permission-prompt')
+  })
+
   it('persists curation across instances without touching session files', () => {
     writeStoredSession('old-session', 60)
     service.curateSession(projectId, 'old-session', { pinned: true, title: 'Login bug hunt' })

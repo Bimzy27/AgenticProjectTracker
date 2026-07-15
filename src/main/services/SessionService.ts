@@ -89,7 +89,12 @@ class ManagedSession {
     /** Model alias or full id for the session; null inherits the CLI default. */
     private readonly model: string | null,
     private readonly onChange: (session: ManagedSession, newItems: TranscriptItem[]) => void,
-    private readonly queryFn: QueryFn
+    private readonly queryFn: QueryFn,
+    /**
+     * Whether this session's project has looping mode enabled; read live on
+     * every permission prompt so toggling looping takes effect immediately.
+     */
+    private readonly isProjectLooping: () => boolean
   ) {
     this.mode = mode
   }
@@ -104,6 +109,13 @@ class ManagedSession {
         model: this.model ?? undefined,
         resume: resumeSessionId,
         canUseTool: async (toolName, input) => {
+          // Looping mode runs the delegation loop unattended, so a bash-command
+          // permission prompt would stall the run waiting on a user who isn't
+          // watching. Auto-approve Bash for owned (run-loop) sessions whose
+          // project has looping enabled; every other tool still prompts.
+          if (toolName === 'Bash' && this.owner !== null && this.isProjectLooping()) {
+            return { behavior: 'allow', updatedInput: input }
+          }
           const allow = await new Promise<boolean>((resolve) => {
             this.pendingPermissions.push({ resolve, toolName })
             this.state = 'permission-prompt'
@@ -464,7 +476,8 @@ export class SessionService {
         if (newItems.length > 0) this.sink.transcriptAppended(s.projectId, s.localId, newItems)
         this.sink.sessionUpdated(this.managedSummary(s))
       },
-      this.queryFn
+      this.queryFn,
+      () => this.projects.get(projectId)?.looping ?? false
     )
     this.managed.set(localId, session)
     return session

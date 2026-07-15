@@ -31,8 +31,10 @@ export interface Project {
    * Looping mode (off by default): while enabled, completed runs in this
    * project are approved automatically instead of waiting for the user's
    * review, and when the project's agent is free the next draft task in the
-   * backlog is delegated automatically. Questions and failures still escalate
-   * to the user.
+   * backlog is delegated automatically. So the loop can run unattended, a
+   * delegated run's bash-command permission prompts are also auto-approved
+   * (only bash, only the loop's own sessions). Questions and failures still
+   * escalate to the user.
    */
   looping: boolean
   /**
