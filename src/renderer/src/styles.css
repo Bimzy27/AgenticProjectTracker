@@ -1152,6 +1152,14 @@ label.form-row {
   flex-direction: column;
   gap: 6px;
 }
+/* The list's own 6px gap spaces the stacked toolbar rows; the default 12px would double it. */
+.task-list .toolbar {
+  margin-bottom: 0;
+}
+.task-view-controls .task-filter {
+  flex: 1 1 120px;
+  min-width: 0;
+}
 .task-row {
   display: flex;
   align-items: stretch;

@@ -453,3 +453,51 @@ test('the agent tasks toggle lets agents add draft tasks to the backlog', async 
   await agentTasks.click()
   await expect(agentTasks).not.toBeChecked()
 })
+
+test('the backlog and the archive can be filtered and sorted', async () => {
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+
+  // Baseline: the earlier flows left three backlog tasks in manual order, with reorder arrows.
+  const titles = page.locator('.task-row-title')
+  await expect(titles).toHaveText(['Long research', 'Monitored work', 'Fix greeting typo'])
+  await expect(page.locator('.task-row-order')).toHaveCount(3)
+
+  // Alphabetic sort in both directions; position-based reorder arrows disappear.
+  await page.getByLabel('Sort tasks').selectOption('title')
+  await expect(titles).toHaveText(['Fix greeting typo', 'Long research', 'Monitored work'])
+  await expect(page.locator('.task-row-order')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Toggle sort direction' }).click()
+  await expect(titles).toHaveText(['Monitored work', 'Long research', 'Fix greeting typo'])
+
+  // Date sort starts newest-first and flips to oldest-first.
+  await page.getByLabel('Sort tasks').selectOption('created')
+  await expect(titles).toHaveText(['Fix greeting typo', 'Monitored work', 'Long research'])
+  await page.getByRole('button', { name: 'Toggle sort direction' }).click()
+  await expect(titles).toHaveText(['Long research', 'Monitored work', 'Fix greeting typo'])
+
+  // The filter matches titles and purposes, case-insensitively.
+  const filter = page.getByLabel('Filter tasks')
+  await filter.fill('RESEARCH')
+  await expect(titles).toHaveText(['Long research'])
+  // Only the Monitored work purpose mentions watching.
+  await filter.fill('watch')
+  await expect(titles).toHaveText(['Monitored work'])
+  await filter.fill('no such task')
+  await expect(page.getByText('No tasks match the filter.')).toBeVisible()
+  await filter.fill('')
+
+  // Back in backlog order the manual reorder arrows return.
+  await page.getByLabel('Sort tasks').selectOption('backlog')
+  await expect(titles).toHaveText(['Long research', 'Monitored work', 'Fix greeting typo'])
+  await expect(page.locator('.task-row-order')).toHaveCount(3)
+
+  // The same controls drive the archive view.
+  await page.locator('.task-list').getByRole('checkbox').check()
+  await filter.fill('loop')
+  await page.getByLabel('Sort tasks').selectOption('title')
+  await expect(titles).toHaveText(['Loop step one', 'Loop step two'])
+  await page.getByRole('button', { name: 'Toggle sort direction' }).click()
+  await expect(titles).toHaveText(['Loop step two', 'Loop step one'])
+  await filter.fill('')
+  await page.locator('.task-list').getByRole('checkbox').uncheck()
+})

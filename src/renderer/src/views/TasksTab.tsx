@@ -9,6 +9,13 @@ import type {
 } from '@shared/domain'
 import { AGENT_MODEL_PRESETS, agentModelLabel } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
+import {
+  applyTaskListView,
+  DEFAULT_TASK_LIST_VIEW,
+  defaultDirection,
+  isManualOrderView
+} from '@shared/taskListView'
+import type { TaskListView, TaskSortKey } from '@shared/taskListView'
 import { formatRelativeTime, formatTokens, tracker, useTrackerEvent } from '../tracker'
 
 const MODES: Array<{ id: SessionPermissionMode; label: string; hint: string }> = [
@@ -44,6 +51,7 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
   const [editing, setEditing] = useState<TaskDefinition | 'new' | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [view, setView] = useState<TaskListView>(DEFAULT_TASK_LIST_VIEW)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
@@ -63,8 +71,13 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
 
   if (tasks === null) return <div className="empty-state">Loading tasks…</div>
 
-  const visible = tasks.filter((t) => (showArchived ? t.archived : !t.archived))
+  const visible = applyTaskListView(
+    tasks.filter((t) => (showArchived ? t.archived : !t.archived)),
+    view
+  )
   const selected = tasks.find((t) => t.id === selectedId) ?? null
+  // Position-based reordering only makes sense while the plain backlog order is shown.
+  const manualOrder = !showArchived && isManualOrderView(view)
 
   const act = (fn: () => Promise<unknown>): void => {
     setError(null)
@@ -96,11 +109,47 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
             archived
           </label>
         </div>
+        <div className="toolbar task-view-controls">
+          <input
+            type="search"
+            className="task-filter"
+            placeholder="Filter tasks…"
+            aria-label="Filter tasks"
+            title="Show only tasks whose title or purpose contains this text"
+            value={view.filter}
+            onChange={(e) => setView({ ...view, filter: e.target.value })}
+          />
+          <select
+            aria-label="Sort tasks"
+            title="Sort the list; backlog order is the manual arrangement agents pull from"
+            value={view.sortKey}
+            onChange={(e) => {
+              const sortKey = e.target.value as TaskSortKey
+              setView({ ...view, sortKey, direction: defaultDirection(sortKey) })
+            }}
+          >
+            <option value="backlog">Backlog order</option>
+            <option value="created">Created</option>
+            <option value="updated">Updated</option>
+            <option value="title">Title</option>
+          </select>
+          <button
+            aria-label="Toggle sort direction"
+            title={
+              view.direction === 'asc' ? 'Ascending; click for descending' : 'Descending; click for ascending'
+            }
+            onClick={() => setView({ ...view, direction: view.direction === 'asc' ? 'desc' : 'asc' })}
+          >
+            {view.direction === 'asc' ? '↑' : '↓'}
+          </button>
+        </div>
         {visible.length === 0 && (
           <div className="empty-state">
-            {showArchived
-              ? 'No archived tasks. Completed tasks land here automatically.'
-              : 'No tasks yet. Describe what an agent should build, then delegate it.'}
+            {view.filter.trim()
+              ? 'No tasks match the filter.'
+              : showArchived
+                ? 'No archived tasks. Completed tasks land here automatically.'
+                : 'No tasks yet. Describe what an agent should build, then delegate it.'}
           </div>
         )}
         {visible.map((task, index) => (
@@ -116,7 +165,7 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
                 <span>{formatRelativeTime(task.updatedAt)}</span>
               </div>
             </button>
-            {!showArchived && (
+            {manualOrder && (
               <div className="task-row-order">
                 <button title="Move up" disabled={index === 0} onClick={() => move(task, -1)}>
                   ↑

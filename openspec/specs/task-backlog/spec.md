@@ -74,6 +74,32 @@ The system SHALL allow the user to revive an archived task back to the backlog; 
 - **WHEN** the user attempts to archive a task that is queued, running, needing input, or in review
 - **THEN** the system refuses and explains the run must finish or be stopped first
 
+### Requirement: Task list filtering and sorting
+
+The system SHALL let the user filter the task list by text (matched case-insensitively against title and purpose) and sort it by creation time, last-update time, or title, each ascending or descending, in addition to the default manual backlog order.
+The same filter and sort controls SHALL apply to the backlog view and the archived view.
+Position-based reorder controls SHALL be available only while the plain manual backlog order is shown, since positional moves are ambiguous in a filtered or re-sorted list.
+
+#### Scenario: Filtering the backlog
+
+- **WHEN** the user types text into the task filter
+- **THEN** only tasks whose title or purpose contains the text (ignoring case) remain listed
+
+#### Scenario: Sorting alphabetically and by date
+
+- **WHEN** the user picks a title or date sort and toggles the direction
+- **THEN** the list reorders accordingly, ascending or descending
+
+#### Scenario: Filtering and sorting the archive
+
+- **WHEN** the user enables the archived view and applies a filter or sort
+- **THEN** the archived tasks are filtered and sorted with the same controls
+
+#### Scenario: Manual reordering is confined to backlog order
+
+- **WHEN** a filter or a non-default sort is active
+- **THEN** the move up/down controls are hidden until the plain backlog order is restored
+
 ### Requirement: Backlog persists across restarts
 
 The system SHALL persist tasks and their states locally so the backlog survives app restarts.
