@@ -69,9 +69,19 @@ describe('Watchers repo watching', () => {
 
   it('reports a debounced repoChanged when a file changes', async () => {
     watchers.sync([project()])
-    writeFileSync(join(repo, 'app.ts'), 'export {}\n')
-    await vi.waitFor(() => expect(repoChanged).toHaveBeenCalledWith('p1'), { timeout: 5000 })
-  })
+    // Recursive fs.watch starts asynchronously on macOS (FSEvents) and has no
+    // ready signal, so a single write in the instant after sync() can be
+    // dropped and time the test out. Re-touch the file until the watcher
+    // reports it, spacing touches wider than the 500ms trailing debounce so
+    // repeated events cannot starve the callback.
+    await vi.waitFor(
+      () => {
+        writeFileSync(join(repo, 'app.ts'), `export {} // ${Date.now()}\n`)
+        expect(repoChanged).toHaveBeenCalledWith('p1')
+      },
+      { timeout: 10_000, interval: 2_000 }
+    )
+  }, 15_000)
 
   // On macOS FSEvents may attribute a change to the containing directory,
   // which legitimately fires a refresh; per-file silence is only guaranteed
