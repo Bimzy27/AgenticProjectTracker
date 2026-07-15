@@ -11,6 +11,30 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test'
 const REPO_SLUG = 'e2e/analytics-demo'
 const FAKE_TOKEN = 'apt-e2e-fake-github-token'
 const DAYS = 14
+const OUTAGE_MESSAGE = 'analytics fixture outage'
+
+/** GitHub list-releases payload: one full release and one bare draft-like one. */
+const RELEASES = [
+  {
+    tag_name: 'v1.2.0',
+    name: 'Summer Update',
+    published_at: '2026-07-10T00:00:00Z',
+    body: 'Highlights:\n- fake releases served end to end',
+    html_url: `https://github.com/${REPO_SLUG}/releases/tag/v1.2.0`,
+    assets: [
+      { name: 'analytics-demo-setup-1.2.0.exe', download_count: 320, size: 52_428_800 },
+      { name: 'analytics-demo-1.2.0.zip', download_count: 13, size: 1536 }
+    ]
+  },
+  {
+    tag_name: 'v1.1.0',
+    name: null,
+    published_at: null,
+    body: null,
+    html_url: `https://github.com/${REPO_SLUG}/releases/tag/v1.1.0`,
+    assets: []
+  }
+]
 
 /** Deterministic 14-day traffic series; day index 2 is the assertion target. */
 function trafficPoints(
@@ -30,6 +54,8 @@ let claudeHome: string
 let repo: string
 let githubServer: Server
 let githubApi: string
+/** When true the fake server answers analytics endpoints with a 500. */
+let analyticsOutage = false
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
@@ -59,6 +85,14 @@ test.beforeAll(async () => {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(body))
     }
+    const isAnalyticsEndpoint =
+      req.url?.startsWith(`/repos/${REPO_SLUG}/traffic/`) ||
+      req.url?.startsWith(`/repos/${REPO_SLUG}/releases`)
+    if (analyticsOutage && isAnalyticsEndpoint) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ message: OUTAGE_MESSAGE }))
+      return
+    }
     if (req.url?.startsWith(`/repos/${REPO_SLUG}/traffic/views`)) {
       respond({ count: 0, uniques: 0, views: trafficPoints('views') })
       return
@@ -68,7 +102,7 @@ test.beforeAll(async () => {
       return
     }
     if (req.url?.startsWith(`/repos/${REPO_SLUG}/releases`)) {
-      respond([])
+      respond(RELEASES)
       return
     }
     if (req.url?.startsWith(`/repos/${REPO_SLUG}/actions/runs`)) {
@@ -168,4 +202,60 @@ test('keyboard focus reveals the same tooltip as hover', async () => {
   await expect(tip).toBeVisible()
   await expect(tip).toContainText('5 views')
   await expect(tip).toContainText('2 unique')
+})
+
+test('releases section renders the releases served by the API', async () => {
+  const cards = page.locator('.release-card')
+  await expect(cards).toHaveCount(RELEASES.length)
+
+  // Newest release: named link to GitHub, tag badge, summed downloads,
+  // per-asset rows with formatted sizes, and the release notes.
+  const summer = cards.nth(0)
+  await expect(summer.getByRole('link', { name: 'Summer Update' })).toHaveAttribute(
+    'href',
+    RELEASES[0].html_url
+  )
+  await expect(summer.locator('.badge')).toHaveText('v1.2.0')
+  await expect(summer).toContainText('333 downloads')
+  const assetRows = summer.locator('.assets-table tr')
+  await expect(assetRows).toHaveCount(2)
+  await expect(assetRows.nth(0)).toContainText('analytics-demo-setup-1.2.0.exe')
+  await expect(assetRows.nth(0)).toContainText('50.0 MB')
+  await expect(assetRows.nth(0)).toContainText('320 downloads')
+  await expect(assetRows.nth(1)).toContainText('analytics-demo-1.2.0.zip')
+  await expect(assetRows.nth(1)).toContainText('1.5 KB')
+  await expect(summer.locator('.release-notes')).toContainText('fake releases served end to end')
+
+  // Unnamed, unpublished release: falls back to the tag, no asset table.
+  const untitled = cards.nth(1)
+  await expect(untitled.getByRole('link', { name: 'v1.1.0' })).toHaveAttribute('href', RELEASES[1].html_url)
+  await expect(untitled).toContainText('unpublished · 0 downloads')
+  await expect(untitled.locator('.assets-table')).toHaveCount(0)
+})
+
+/** Remounts the Analytics tab so it refetches against the fake server. */
+async function reopenAnalyticsTab(): Promise<void> {
+  const tabBar = page.locator('.tab-bar')
+  await tabBar.getByRole('button', { name: 'Tasks' }).click()
+  await tabBar.getByRole('button', { name: 'Analytics', exact: true }).click()
+}
+
+test('an API failure shows the error state; recovery renders data again', async () => {
+  analyticsOutage = true
+  await reopenAnalyticsTab()
+  const errorText = page.locator('.error-text')
+  // Octokit retries 5xx responses 3 times with quadratic backoff (~14s
+  // total) before the error surfaces, so allow well beyond that.
+  await expect(errorText).toBeVisible({ timeout: 30_000 })
+  await expect(errorText).toContainText(OUTAGE_MESSAGE)
+  // The broken tab shows only the error, not stale charts or release cards.
+  await expect(page.locator('.traffic-chart')).toHaveCount(0)
+  await expect(page.locator('.release-card')).toHaveCount(0)
+
+  // Once the API recovers, reopening the tab renders data with no residue.
+  analyticsOutage = false
+  await reopenAnalyticsTab()
+  await expect(page.locator('.release-card')).toHaveCount(RELEASES.length)
+  await expect(chart('Views').locator('.bar')).toHaveCount(DAYS)
+  await expect(errorText).toHaveCount(0)
 })
