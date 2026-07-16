@@ -98,7 +98,7 @@ The briefing SHALL instruct the agent to include, when able, an http(s) link to 
 
 Each project SHALL offer a looping-mode toggle (off by default, persisted per project) in the project view, with a tooltip explaining its effect.
 While looping is enabled for a project: completed runs with a passing gate SHALL be approved automatically instead of waiting for review; enabling the toggle SHALL immediately approve the project's runs already parked in review; and whenever the project's agent is free, the first draft task in backlog order SHALL be delegated automatically.
-While looping is enabled, a delegated run's bash-command permission prompts SHALL be approved automatically so the loop runs unattended; this applies only to the loop's own run sessions, and only to bash commands, so every other tool still prompts and manually started sessions are unaffected.
+While looping is enabled, a delegated run's permission prompts SHALL be approved automatically for every tool, and enabling the toggle SHALL immediately approve permission prompts already pending on the project's delegated runs, so the loop runs unattended and never parks a permission request in the attention inbox; this applies only to the loop's own run sessions, so manually started sessions are unaffected and still prompt.
 Looping SHALL NOT bypass escalations: questions, exhausted recovery, and step-budget escalations still stop the loop until the user responds, and failed tasks are never restarted by the loop.
 
 #### Scenario: Loop picks up the next task
@@ -111,10 +111,10 @@ Looping SHALL NOT bypass escalations: questions, exhausted recovery, and step-bu
 - **WHEN** the user enables looping on a project that has a task waiting in review
 - **THEN** that task is approved automatically and the backlog continues
 
-#### Scenario: Looping auto-approves bash commands
+#### Scenario: Looping auto-approves permission requests
 
-- **WHEN** a delegated run requests a bash command in a project with looping enabled
-- **THEN** the command is approved automatically without stalling in a permission prompt, while a non-bash tool request in the same run still prompts the user
+- **WHEN** a delegated run requests any tool permission in a project with looping enabled
+- **THEN** the request is approved automatically without stalling in a permission prompt, while a manually started session in the same project still prompts the user
 
 #### Scenario: Looping does not bypass questions
 

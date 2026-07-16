@@ -185,7 +185,7 @@ describe('SessionService', () => {
     expect(service.listSessions(projectId)[0].state).toBe('running')
   })
 
-  it('auto-approves Bash for owned run-loop sessions when the project is looping', async () => {
+  it('auto-approves every tool for owned run-loop sessions when the project is looping', async () => {
     store.update(projectId, { looping: true })
     const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
     const summary = service.startOwnedSession(
@@ -198,8 +198,12 @@ describe('SessionService', () => {
     )
     const canUseTool = queryMock.mock.calls[0][0].options.canUseTool
 
-    // Bash is approved immediately without ever stalling in a permission prompt.
+    // Every tool request is approved immediately without ever stalling in a
+    // permission prompt, so the loop never parks an inbox item on the user.
     await expect(canUseTool('Bash', { command: 'npm test' })).resolves.toMatchObject({
+      behavior: 'allow'
+    })
+    await expect(canUseTool('WebFetch', { url: 'https://example.com' })).resolves.toMatchObject({
       behavior: 'allow'
     })
     await settle()
@@ -207,16 +211,44 @@ describe('SessionService', () => {
       'permission-prompt'
     )
     expect(service.attentionCounts(projectId).needingAttention).toBe(0)
-
-    // Other tools still prompt: looping only auto-approves bash commands.
-    void canUseTool('WebFetch', { url: 'https://example.com' })
-    await settle()
-    expect(service.listSessions(projectId).find((s) => s.id === summary.id)?.state).toBe('permission-prompt')
   })
 
-  it('still prompts for Bash on manual sessions even when the project is looping', async () => {
+  it('releases parked permission prompts on delegated runs when looping turns on', async () => {
+    // Looping off: an owned session's permission request parks awaiting the user.
+    const observer = { turnCompleted: vi.fn(), stateChanged: vi.fn(), closed: vi.fn() }
+    const owned = service.startOwnedSession(
+      projectId,
+      'the briefing',
+      'acceptEdits',
+      null,
+      { taskId: 't1', taskTitle: 'Add login', runId: 'r1' },
+      observer
+    )
+    const ownedCanUseTool = queryMock.mock.calls[0][0].options.canUseTool
+    const parked = ownedCanUseTool('WebFetch', { url: 'https://example.com' })
+    await settle()
+    expect(service.listSessions(projectId).find((s) => s.id === owned.id)?.state).toBe('permission-prompt')
+
+    // A manual session prompting at the same time must keep its prompt.
+    const manual = service.startSession(projectId, 'manual work', 'acceptEdits')
+    const manualCanUseTool = queryMock.mock.calls[1][0].options.canUseTool
+    void manualCanUseTool('Bash', { command: 'rm -rf build' })
+    await settle()
+
+    // Turning looping on flushes the parked prompt without user input.
+    store.update(projectId, { looping: true })
+    service.approvePendingRunPermissions(projectId)
+    await expect(parked).resolves.toMatchObject({ behavior: 'allow' })
+    await settle()
+    expect(service.listSessions(projectId).find((s) => s.id === owned.id)?.state).not.toBe(
+      'permission-prompt'
+    )
+    expect(service.listSessions(projectId).find((s) => s.id === manual.id)?.state).toBe('permission-prompt')
+  })
+
+  it('still prompts on manual sessions even when the project is looping', async () => {
     // Looping auto-approval is scoped to the unattended run loop; a manual
-    // session has a user present, so its bash prompts must not be skipped.
+    // session has a user present, so its permission prompts must not be skipped.
     store.update(projectId, { looping: true })
     service.startSession(projectId, 'manual work', 'acceptEdits')
     const canUseTool = queryMock.mock.calls[0][0].options.canUseTool

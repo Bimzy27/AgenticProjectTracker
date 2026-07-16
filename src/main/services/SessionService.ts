@@ -109,11 +109,11 @@ class ManagedSession {
         model: this.model ?? undefined,
         resume: resumeSessionId,
         canUseTool: async (toolName, input) => {
-          // Looping mode runs the delegation loop unattended, so a bash-command
-          // permission prompt would stall the run waiting on a user who isn't
-          // watching. Auto-approve Bash for owned (run-loop) sessions whose
-          // project has looping enabled; every other tool still prompts.
-          if (toolName === 'Bash' && this.owner !== null && this.isProjectLooping()) {
+          // Looping mode runs the delegation loop unattended, so a permission
+          // prompt would stall the run waiting on a user who isn't watching.
+          // Auto-approve every tool request for owned (run-loop) sessions whose
+          // project has looping enabled; manual sessions still prompt.
+          if (this.owner !== null && this.isProjectLooping()) {
             return { behavior: 'allow', updatedInput: input }
           }
           const allow = await new Promise<boolean>((resolve) => {
@@ -162,6 +162,13 @@ class ManagedSession {
     const pending = this.pendingPermissions.shift()
     if (!pending) throw new Error('No pending permission prompt')
     pending.resolve(allow)
+  }
+
+  /** Approve every pending permission prompt at once (looping-mode flush). */
+  approveAllPendingPermissions(): void {
+    while (this.pendingPermissions.length > 0) {
+      this.pendingPermissions.shift()!.resolve(true)
+    }
   }
 
   async interrupt(): Promise<void> {
@@ -423,6 +430,19 @@ export class SessionService {
 
   respondToPermission(_projectId: string, sessionId: string, allow: boolean): void {
     this.requireManaged(sessionId).respondToPermission(allow)
+  }
+
+  /**
+   * Approve every pending permission prompt on the project's owned run-loop
+   * sessions. Called when looping mode is turned on, so permission requests
+   * already parked in the attention inbox are released without user input;
+   * manual sessions keep their prompts.
+   */
+  approvePendingRunPermissions(projectId: string): void {
+    for (const session of this.managed.values()) {
+      if (session.isClosed || session.projectId !== projectId || session.owner === null) continue
+      session.approveAllPendingPermissions()
+    }
   }
 
   async interruptSession(_projectId: string, sessionId: string): Promise<void> {

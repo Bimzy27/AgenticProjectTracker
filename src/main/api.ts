@@ -75,8 +75,12 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
       const project = await deps.projects.update(id, patch)
       deps.onProjectsChanged()
       // Toggling looping mode changes scheduling inputs: reschedule so turning
-      // it on unblocks parked reviews and picks up the backlog immediately.
-      if (patch.looping !== undefined) deps.orchestrator.reschedule()
+      // it on unblocks parked reviews and picks up the backlog immediately,
+      // and release permission prompts already parked on delegated runs.
+      if (patch.looping !== undefined) {
+        if (project.looping) deps.sessions.approvePendingRunPermissions(id)
+        deps.orchestrator.reschedule()
+      }
       return project
     },
     removeProject: async (id: string) => {

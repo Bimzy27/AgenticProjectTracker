@@ -32,9 +32,9 @@ export interface Project {
    * project are approved automatically instead of waiting for the user's
    * review, and when the project's agent is free the next draft task in the
    * backlog is delegated automatically. So the loop can run unattended, a
-   * delegated run's bash-command permission prompts are also auto-approved
-   * (only bash, only the loop's own sessions). Questions and failures still
-   * escalate to the user.
+   * delegated run's permission prompts are auto-approved for every tool
+   * (only the loop's own sessions; manual sessions still prompt). Questions
+   * and failures still escalate to the user.
    */
   looping: boolean
   /**
