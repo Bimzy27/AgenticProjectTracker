@@ -6,7 +6,8 @@ description: Cut a versioned GitHub release of the app with the packaged Windows
 # GitHub Release
 
 Cut a versioned release of Agentic Project Tracker.
-Pushing a `v*` tag triggers `.github/workflows/release.yml`, which re-runs the quality checks, packages the NSIS installer, and publishes a GitHub release with generated notes and the installer attached.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which re-runs the quality checks, packages the NSIS installer, silently installs it and smoke-tests the installed app (`npm run test:smoke`, a Playwright run of the fake-agent delegation flow against the installed exe), and publishes a GitHub release with generated notes and the installer attached.
+The smoke gate exists because dev-build E2E cannot catch asar packaging bugs; no release publishes without it passing.
 This skill owns everything up to and including that tag push, then watches the workflow to completion.
 
 ## Preflight

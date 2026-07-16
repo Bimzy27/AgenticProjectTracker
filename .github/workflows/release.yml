@@ -29,6 +29,22 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run package
+      # Install the built NSIS installer silently and smoke-test the installed
+      # app before publishing: dev-build tests cannot catch asar packaging bugs
+      # (v0.1.0 shipped two). NSIS quirks: /D must be the last argument and its
+      # value must stay unquoted, so use a space-free install dir.
+      - name: Install the packaged app silently
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Start-Process -FilePath "dist\AgenticProjectTracker-Setup-$version.exe" -ArgumentList '/S', '/D=C:\apt-smoke' -Wait
+          if (-not (Test-Path 'C:\apt-smoke\Agentic Project Tracker.exe')) {
+            Write-Error 'Installed exe not found after silent install.'
+            exit 1
+          }
+      - name: Smoke-test the installed app
+        env:
+          APT_PACKAGED_EXE: C:\apt-smoke\Agentic Project Tracker.exe
+        run: npm run test:smoke
       - name: Create GitHub release with the installer
         uses: softprops/action-gh-release@v3
         with:

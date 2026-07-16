@@ -42,6 +42,7 @@ npm run lint         # eslint
 npm test             # vitest unit tests
 npm run test:e2e     # builds, then drives the real app with Playwright
 npm run package      # electron-vite build + electron-builder NSIS installer (dist/)
+npm run test:smoke   # drives the packaged build (run `npm run package` first)
 ```
 
 ### Architecture
@@ -67,7 +68,8 @@ In Claude Code, start a new change with:
 
 ## Releasing
 
-Releases are cut by pushing a version tag; `.github/workflows/release.yml` re-runs the quality checks, packages the installer, and publishes a GitHub release with generated notes.
+Releases are cut by pushing a version tag; `.github/workflows/release.yml` re-runs the quality checks, packages the installer, silently installs it, smoke-tests the installed app (`npm run test:smoke` driving the delegation flow through Playwright), and publishes a GitHub release with generated notes.
+Dev-build E2E cannot catch asar packaging bugs (v0.1.0 shipped two), so the smoke test gates every release on the actual installed exe.
 
 ```bash
 # after bumping "version" in package.json and pushing main
