@@ -12,6 +12,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history and tags: the release-notes step diffs against the
+          # previous tag to build the changelog.
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -45,8 +49,49 @@ jobs:
         env:
           APT_PACKAGED_EXE: C:\apt-smoke\Agentic Project Tracker.exe
         run: npm run test:smoke
+      # GitHub's generated notes summarize pull requests, which this
+      # direct-push repo does not have, leaving only a compare link. Build a
+      # categorized changelog from conventional commit subjects since the
+      # previous tag instead.
+      - name: Build release notes from conventional commits
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..$tag" } else { $tag }
+          $sections = [ordered]@{
+            'Breaking Changes' = @(); 'Features' = @(); 'Bug Fixes' = @(); 'Performance' = @()
+            'Refactoring' = @(); 'Documentation' = @(); 'Tests' = @(); 'Chores' = @(); 'Other' = @()
+          }
+          $typeMap = @{
+            feat = 'Features'; fix = 'Bug Fixes'; perf = 'Performance'; refactor = 'Refactoring'
+            docs = 'Documentation'; test = 'Tests'; chore = 'Chores'; build = 'Chores'; ci = 'Chores'; style = 'Chores'
+          }
+          foreach ($line in @(git log $range --no-merges --pretty=format:'%h %s')) {
+            $hash, $subject = $line -split ' ', 2
+            # The version-bump commit is release plumbing, not a user-facing change.
+            if ($subject -match '^chore: release v\d') { continue }
+            if ($subject -match '^(?<type>[a-z]+)(\((?<scope>[^)]+)\))?(?<bang>!)?: (?<desc>.+)$') {
+              $desc = if ($Matches.scope) { "**$($Matches.scope):** $($Matches.desc)" } else { $Matches.desc }
+              $name = if ($Matches.bang) { 'Breaking Changes' }
+                      elseif ($typeMap.ContainsKey($Matches.type)) { $typeMap[$Matches.type] }
+                      else { 'Other' }
+            } else {
+              $desc = $subject
+              $name = 'Other'
+            }
+            $sections[$name] += "- $desc ($hash)"
+          }
+          $notes = foreach ($name in $sections.Keys) {
+            if ($sections[$name].Count -gt 0) { "## $name"; $sections[$name]; '' }
+          }
+          if (-not $notes) { $notes = @('No changes since the previous release.', '') }
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+          Get-Content release-notes.md
       - name: Create GitHub release with the installer
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.exe
+          body_path: release-notes.md
+          # Kept on: the API prepends the custom body to the generated notes,
+          # so the Full Changelog compare link still lands at the bottom.
           generate_release_notes: true
