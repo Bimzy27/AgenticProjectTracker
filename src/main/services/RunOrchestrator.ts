@@ -269,9 +269,10 @@ export class RunOrchestrator {
    * Apply looping mode (see Project.looping) before regular scheduling: in
    * looping projects, runs parked in review are approved automatically (the
    * user's sign-off is skipped), and when a project is otherwise idle the
-   * first draft task in backlog order is queued so the agent picks it up.
-   * Questions and failures are untouched: needs-input still blocks the loop
-   * until the user responds.
+   * first loop-enabled draft task in backlog order is queued so the agent
+   * picks it up (tasks toggled out of the loop are skipped; see
+   * TaskDefinition.loopEnabled). Questions and failures are untouched:
+   * needs-input still blocks the loop until the user responds.
    */
   private pumpLooping(): void {
     const all = this.tasks.listAll()
@@ -292,7 +293,9 @@ export class RunOrchestrator {
         )
     )
     for (const projectId of idleLoopingProjects) {
-      const next = this.tasks.listTasks(projectId).find((t) => t.state === 'draft' && !t.archived)
+      const next = this.tasks
+        .listTasks(projectId)
+        .find((t) => t.state === 'draft' && !t.archived && t.loopEnabled)
       if (next) this.tasks.setState(next.id, 'queued')
     }
   }

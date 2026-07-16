@@ -130,8 +130,14 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     // Task backlog
     listTasks: async (projectId: string) => deps.tasks.listTasks(projectId),
     createTask: async (projectId: string, input: TaskInput) => deps.tasks.create(projectId, input),
-    updateTask: async (_projectId: string, taskId: string, patch: TaskPatch) =>
-      deps.tasks.update(taskId, patch),
+    updateTask: async (_projectId: string, taskId: string, patch: TaskPatch) => {
+      const task = deps.tasks.update(taskId, patch)
+      // Toggling loop participation changes scheduling inputs: reschedule so a
+      // draft toggled back into the loop is picked up immediately when its
+      // looping project is idle, instead of waiting for the next run event.
+      if (patch.loopEnabled !== undefined) deps.orchestrator.reschedule()
+      return task
+    },
     deleteTask: async (_projectId: string, taskId: string) => deps.tasks.delete(taskId),
     reorderTask: async (projectId: string, taskId: string, beforeTaskId: string | null) => {
       deps.tasks.reorder(taskId, beforeTaskId)

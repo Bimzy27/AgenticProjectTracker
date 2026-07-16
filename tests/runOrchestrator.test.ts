@@ -268,6 +268,40 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(second.id).state).toBe('running')
   })
 
+  it('looping mode skips tasks toggled out of the loop and picks the next enabled draft', () => {
+    const orch = makeOrchestrator({ isProjectLooping: () => true })
+    const parked = makeTask('p1', { title: 'Parked task', loopEnabled: false })
+    const enabled = makeTask('p1', { title: 'Loop task' })
+    orch.reschedule()
+
+    // The loop passes over the parked draft and starts the next enabled one.
+    expect(tasks.getOrThrow(parked.id).state).toBe('draft')
+    expect(tasks.getOrThrow(enabled.id).state).toBe('running')
+    expect(sessions.last().prompt).toContain('Loop task')
+
+    // Once only parked drafts remain, the loop rests instead of starting them.
+    sessions.turn(sessions.last(), COMPLETE_OK)
+    expect(tasks.getOrThrow(enabled.id).state).toBe('done')
+    expect(tasks.getOrThrow(parked.id).state).toBe('draft')
+    expect(sessions.sessions).toHaveLength(1)
+
+    // Manual delegation still works for a task toggled out of the loop.
+    orch.delegate(parked.id)
+    expect(tasks.getOrThrow(parked.id).state).toBe('running')
+  })
+
+  it('toggling a parked draft back into the loop lets the reschedule pick it up', () => {
+    const orch = makeOrchestrator({ isProjectLooping: () => true })
+    const parked = makeTask('p1', { title: 'Parked task', loopEnabled: false })
+    orch.reschedule()
+    expect(tasks.getOrThrow(parked.id).state).toBe('draft')
+
+    // Same flow the updateTask API drives: patch the flag, then reschedule.
+    tasks.update(parked.id, { loopEnabled: true })
+    orch.reschedule()
+    expect(tasks.getOrThrow(parked.id).state).toBe('running')
+  })
+
   it('looping mode does not bypass questions: needs-input still blocks the loop', () => {
     const orch = makeOrchestrator({ isProjectLooping: () => true })
     const first = makeTask('p1')

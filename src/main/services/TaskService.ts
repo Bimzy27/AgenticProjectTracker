@@ -79,6 +79,7 @@ export class TaskService {
       autoApprove: input.autoApprove ?? false,
       reviewFeedback: null,
       archived: false,
+      loopEnabled: input.loopEnabled ?? true,
       createdAt: now,
       updatedAt: now,
       transitions: [{ state: 'draft', at: now }]
@@ -110,6 +111,7 @@ export class TaskService {
       task.recoveryBudget = requireNonNegative(patch.recoveryBudget, 'Recovery budget')
     }
     if (patch.autoApprove !== undefined) task.autoApprove = patch.autoApprove
+    if (patch.loopEnabled !== undefined) task.loopEnabled = patch.loopEnabled
     task.updatedAt = new Date().toISOString()
     this.commit(task.projectId)
     return task
@@ -212,23 +214,26 @@ export class TaskService {
     }
     const parsed = JSON.parse(raw) as {
       tasks?: Array<
-        Omit<TaskDefinition, 'archived' | 'model' | 'autoApprove'> & {
+        Omit<TaskDefinition, 'archived' | 'model' | 'autoApprove' | 'loopEnabled'> & {
           archived?: boolean
           model?: string | null
           autoApprove?: boolean
+          loopEnabled?: boolean
         }
       >
     }
     const stored = Array.isArray(parsed.tasks) ? parsed.tasks : []
     // Migrations: files written before archiving existed lack the flag (done
     // tasks are swept into the archive to match the auto-archive-on-completion
-    // rule), files written before model selection default to the CLI model, and
-    // files written before auto-approve default to requiring manual review.
+    // rule), files written before model selection default to the CLI model,
+    // files written before auto-approve default to requiring manual review, and
+    // files written before loop participation default to being picked up.
     this.tasks = stored.map((t) => ({
       ...t,
       archived: t.archived ?? t.state === 'done',
       model: t.model ?? null,
-      autoApprove: t.autoApprove ?? false
+      autoApprove: t.autoApprove ?? false,
+      loopEnabled: t.loopEnabled ?? true
     }))
   }
 

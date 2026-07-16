@@ -1178,6 +1178,17 @@ label.form-row {
 .task-row.active {
   border-color: var(--accent);
 }
+/* Tasks toggled out of looping mode read as parked: a warning-tinted panel. */
+.task-row.loop-off {
+  background: color-mix(in srgb, var(--warning) 9%, var(--bg-panel));
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+}
+.task-row.loop-off.active {
+  border-color: var(--accent);
+}
+.task-row.loop-off .task-row-title {
+  color: var(--warning);
+}
 .task-row-main {
   flex: 1;
   min-width: 0;
@@ -1216,6 +1227,18 @@ label.form-row {
   color: var(--text-muted);
   line-height: 1.4;
 }
+.task-loop-toggle {
+  border: none;
+  background: transparent;
+  align-self: center;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--accent);
+}
+.task-loop-toggle.off {
+  color: var(--warning);
+  opacity: 0.7;
+}
 
 .form-row input[type='number'] {
   flex: 0 0 auto;
@@ -1249,6 +1272,10 @@ label.form-row {
 .badge.task-failed {
   color: var(--failure);
   border-color: var(--failure);
+}
+.badge.task-loop-off {
+  color: var(--warning);
+  border-color: var(--warning);
 }
 .badge.task-attribution {
   color: var(--accent);

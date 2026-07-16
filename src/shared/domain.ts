@@ -272,6 +272,12 @@ export interface TaskDefinition {
    * an archived task returns it to the backlog, resetting done back to draft.
    */
   archived: boolean
+  /**
+   * Loop participation (on by default): while false, looping mode skips this
+   * task when it picks up the next draft, moving on to other backlog work.
+   * The task can still be delegated manually at any time.
+   */
+  loopEnabled: boolean
   createdAt: string
   updatedAt: string
   transitions: TaskTransition[]
@@ -286,6 +292,8 @@ export interface TaskInput {
   stepBudget?: number
   recoveryBudget?: number
   autoApprove?: boolean
+  /** Loop participation (see TaskDefinition.loopEnabled); defaults to true. */
+  loopEnabled?: boolean
 }
 
 export interface TaskPatch {
@@ -297,6 +305,8 @@ export interface TaskPatch {
   stepBudget?: number
   recoveryBudget?: number
   autoApprove?: boolean
+  /** Turn loop participation on or off (see TaskDefinition.loopEnabled). */
+  loopEnabled?: boolean
 }
 
 // ---------- Agent run loop ----------

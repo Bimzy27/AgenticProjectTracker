@@ -39,6 +39,9 @@ const ATTENTION_STATES: ReadonlySet<TaskState> = new Set(['needs-input', 'review
 /** Mirrors the service rule: only settled tasks can be archived. */
 const ARCHIVABLE_STATES: ReadonlySet<TaskState> = new Set(['draft', 'done', 'failed'])
 
+/** Mirrors the service rule: a task cannot be edited while its run is live. */
+const ACTIVE_RUN_STATES: ReadonlySet<TaskState> = new Set(['running', 'needs-input'])
+
 interface Props {
   project: Project
   /** Pre-select a task, e.g. when navigating from the inbox or a session. */
@@ -177,7 +180,10 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
           </div>
         )}
         {visible.map((task, index) => (
-          <div key={task.id} className={`task-row ${task.id === selectedId ? 'active' : ''}`}>
+          <div
+            key={task.id}
+            className={`task-row ${task.id === selectedId ? 'active' : ''} ${task.loopEnabled ? '' : 'loop-off'}`}
+          >
             <button className="task-row-main" onClick={() => setSelectedId(task.id)}>
               <div className="task-row-title">{task.title}</div>
               <div className="task-row-meta muted">
@@ -189,6 +195,25 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
                 <span>{formatRelativeTime(task.updatedAt)}</span>
               </div>
             </button>
+            {!task.archived && (
+              <button
+                className={`task-loop-toggle ${task.loopEnabled ? '' : 'off'}`}
+                aria-label={task.loopEnabled ? 'Exclude from looping mode' : 'Include in looping mode'}
+                title={
+                  task.loopEnabled
+                    ? 'In the loop: looping mode may pick this task up automatically; click to skip it'
+                    : 'Out of the loop: looping mode skips this task; click to include it again'
+                }
+                disabled={ACTIVE_RUN_STATES.has(task.state)}
+                onClick={() =>
+                  act(() =>
+                    tracker.invoke('updateTask', project.id, task.id, { loopEnabled: !task.loopEnabled })
+                  )
+                }
+              >
+                ∞
+              </button>
+            )}
             {manualOrder && (
               <div className="task-row-order">
                 <button title="Move up" disabled={index === 0} onClick={() => move(task, -1)}>
@@ -269,7 +294,7 @@ function TaskDetail({
     )
   )
 
-  const editable = task.state !== 'running' && task.state !== 'needs-input'
+  const editable = !ACTIVE_RUN_STATES.has(task.state)
   const archivable = ARCHIVABLE_STATES.has(task.state)
 
   return (
@@ -294,6 +319,14 @@ function TaskDetail({
                 title="Completed runs are accepted automatically, without waiting for your review"
               >
                 auto-approve
+              </span>
+            )}
+            {!task.loopEnabled && (
+              <span
+                className="badge task-loop-off"
+                title="Looping mode skips this task; it can still be delegated manually"
+              >
+                loop off
               </span>
             )}
             {task.model !== null && (

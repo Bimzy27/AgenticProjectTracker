@@ -359,23 +359,36 @@ test('looping mode drives the backlog hands-free and is toggled per project', as
     'approved automatically'
   )
 
-  // Two drafts wait in the backlog.
-  for (const title of ['Loop step one', 'Loop step two']) {
+  // Three drafts wait in the backlog; the last one gets toggled out of the loop.
+  for (const title of ['Loop step one', 'Loop step two', 'Parked step']) {
     await page.getByRole('button', { name: '+ New task' }).click()
     await page.getByPlaceholder('Task title').fill(title)
     await page.getByPlaceholder(/What should the agent build/).fill(`Do the work for ${title}`)
     await page.getByRole('button', { name: 'Create' }).click()
   }
 
-  // Flip looping on: both drafts are delegated and approved hands-free, one
-  // after the other, leaving the backlog without parking in review or raising
-  // attention items. The failed tasks from earlier tests are left alone.
+  // Toggling a task out of the loop recolors its row and badges the detail.
+  const parkedRow = page.locator('.task-row', { hasText: 'Parked step' })
+  await expect(parkedRow).not.toHaveClass(/loop-off/)
+  await parkedRow.getByRole('button', { name: 'Exclude from looping mode' }).click()
+  await expect(parkedRow).toHaveClass(/loop-off/)
+  await expect(page.locator('.task-detail-header .badge.task-loop-off')).toBeVisible()
+
+  // Flip looping on: both loop-enabled drafts are delegated and approved
+  // hands-free, one after the other, leaving the backlog without parking in
+  // review or raising attention items. The failed tasks from earlier tests and
+  // the parked draft are left alone.
   await looping.click()
   await expect(looping).toBeChecked()
   await expect(page.locator('.task-row').getByText('Loop step one')).toHaveCount(0)
   await expect(page.locator('.task-row').getByText('Loop step two')).toHaveCount(0)
+  await expect(parkedRow.locator('.badge.task-draft')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toHaveCount(0)
   await expect(page.locator('.attention-count')).toHaveCount(0)
+
+  // Toggling the parked draft back in wakes the resting loop immediately.
+  await parkedRow.getByRole('button', { name: 'Include in looping mode' }).click()
+  await expect(page.locator('.task-row').getByText('Parked step')).toHaveCount(0)
 
   // The archive holds both loop tasks done, approved by the loop.
   await page.locator('.task-list').getByRole('checkbox').check()

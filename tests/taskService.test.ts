@@ -30,6 +30,7 @@ describe('TaskService', () => {
       stepBudget: 30,
       recoveryBudget: 3,
       autoApprove: false,
+      loopEnabled: true,
       order: 0
     })
     expect(task.transitions).toEqual([{ state: 'draft', at: task.createdAt }])
@@ -88,6 +89,29 @@ describe('TaskService', () => {
     expect(service.getOrThrow(manual.id).autoApprove).toBe(true)
     service.update(manual.id, { autoApprove: false })
     expect(service.getOrThrow(manual.id).autoApprove).toBe(false)
+  })
+
+  it('stores and toggles loop participation', () => {
+    const parked = service.create('p1', { ...input, loopEnabled: false })
+    expect(parked.loopEnabled).toBe(false)
+
+    const task = service.create('p1', input)
+    expect(task.loopEnabled).toBe(true)
+
+    service.update(task.id, { loopEnabled: false })
+    expect(service.getOrThrow(task.id).loopEnabled).toBe(false)
+    service.update(task.id, { loopEnabled: true })
+    expect(service.getOrThrow(task.id).loopEnabled).toBe(true)
+  })
+
+  it('defaults loop participation on for tasks persisted before it existed', () => {
+    const task = service.create('p1', input)
+    const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))
+    for (const stored of file.tasks) delete stored.loopEnabled
+    writeFileSync(join(userData, 'tasks.json'), JSON.stringify(file), 'utf8')
+
+    const reloaded = new TaskService(userData, sink as TaskEventSink)
+    expect(reloaded.getOrThrow(task.id).loopEnabled).toBe(true)
   })
 
   it('defaults auto-approve off for tasks persisted before it existed', () => {
