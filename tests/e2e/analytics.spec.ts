@@ -240,6 +240,16 @@ async function reopenAnalyticsTab(): Promise<void> {
   await tabBar.getByRole('button', { name: 'Analytics', exact: true }).click()
 }
 
+test('release tab commit shas link to the commit on GitHub', async () => {
+  // This project is linked to a GitHub repo, so the release preview's commit
+  // shas must link to the commit pages for inspecting exactly what changed.
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+  await page.locator('.tab-bar').getByRole('button', { name: 'Release', exact: true }).click()
+  const link = page.locator('.release-commits').getByRole('link', { name: sha.slice(0, 7) })
+  await expect(link).toHaveAttribute('href', `https://github.com/${REPO_SLUG}/commit/${sha}`)
+  await page.locator('.tab-bar').getByRole('button', { name: 'Analytics', exact: true }).click()
+})
+
 test('an API failure shows the error state; recovery renders data again', async () => {
   analyticsOutage = true
   await reopenAnalyticsTab()

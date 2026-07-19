@@ -192,6 +192,9 @@ test('release tab previews the next release from local git history', async () =>
   await expect(page.locator('.badge.release-version')).toHaveText('v0.1.0')
   await expect(page.getByText('No release has been published yet.')).toBeVisible()
   await expect(page.locator('.release-commits').getByText('initial')).toBeVisible()
+  // No GitHub repo linked: commit shas render as plain text, not as links.
+  await expect(page.locator('.release-commit-sha')).toHaveText(/^[0-9a-f]{7}$/)
+  await expect(page.locator('.release-commit-sha a')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '🚀 Publish release' })).toBeEnabled()
   await expect(page.getByText(/uncommitted changes/)).toBeVisible()
   await expect(page.getByText('No tasks were completed since the last release.')).toBeVisible()

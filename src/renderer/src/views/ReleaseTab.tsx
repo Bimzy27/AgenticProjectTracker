@@ -139,7 +139,20 @@ export function ReleaseTab({ project, onOpenTask }: Props): React.JSX.Element {
             <tbody>
               {preview.commits.map((commit) => (
                 <tr key={commit.sha}>
-                  <td className="release-commit-sha">{commit.sha.slice(0, 7)}</td>
+                  <td className="release-commit-sha">
+                    {project.github ? (
+                      <a
+                        href={`https://github.com/${project.github.owner}/${project.github.repo}/commit/${commit.sha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="View this commit on GitHub"
+                      >
+                        {commit.sha.slice(0, 7)}
+                      </a>
+                    ) : (
+                      commit.sha.slice(0, 7)
+                    )}
+                  </td>
                   <td>{commit.subject}</td>
                   <td className="muted">{commit.author}</td>
                   <td className="muted">{formatRelativeTime(commit.at)}</td>
