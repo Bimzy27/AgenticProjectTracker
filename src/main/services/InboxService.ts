@@ -38,6 +38,7 @@ export class InboxService {
         projectName: projectNames.get(session.projectId) ?? session.projectId,
         taskId: session.taskId,
         taskTitle: session.taskTitle,
+        taskModel: this.deps.tasks.get(session.taskId)?.model ?? null,
         runId: null,
         sessionId: session.id,
         message: tool ? `The agent wants to use: ${tool}` : 'The agent is waiting for tool permission',
@@ -52,11 +53,13 @@ export class InboxService {
   }
 
   private runItem(run: RunRecord, projectNames: Map<string, string>): InboxItem | null {
+    const task = this.deps.tasks.get(run.taskId)
     const base = {
       projectId: run.projectId,
       projectName: projectNames.get(run.projectId) ?? run.projectId,
       taskId: run.taskId,
-      taskTitle: this.deps.tasks.get(run.taskId)?.title ?? null,
+      taskTitle: task?.title ?? null,
+      taskModel: task?.model ?? null,
       runId: run.id,
       sessionId: run.sessionId || null
     }

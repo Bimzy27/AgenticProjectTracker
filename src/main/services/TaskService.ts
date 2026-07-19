@@ -117,6 +117,21 @@ export class TaskService {
     return task
   }
 
+  /**
+   * Change only the task's model, allowed in any state. Unlike update(), this
+   * is safe while the run is live: the model does not alter the briefing the
+   * agent already received, and the run loop applies the change to the live
+   * session itself. Used to switch a parked run to another model before it
+   * resumes, e.g. when the current model's usage limit is exhausted.
+   */
+  setModel(taskId: string, model: string | null): TaskDefinition {
+    const task = this.getOrThrow(taskId)
+    task.model = normalizeModel(model)
+    task.updatedAt = new Date().toISOString()
+    this.commit(task.projectId)
+    return task
+  }
+
   delete(taskId: string): void {
     const task = this.getOrThrow(taskId)
     this.assertNotActive(task, 'deleted')

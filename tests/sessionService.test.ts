@@ -13,6 +13,7 @@ const { ProjectStore } = await import('../src/main/services/ProjectStore')
 
 interface FakeQuery extends AsyncIterable<unknown> {
   setPermissionMode: ReturnType<typeof vi.fn>
+  setModel: ReturnType<typeof vi.fn>
   interrupt: ReturnType<typeof vi.fn>
   emit(message: unknown): void
   end(): void
@@ -25,6 +26,7 @@ function fakeQuery(): FakeQuery {
   let done = false
   return {
     setPermissionMode: vi.fn().mockResolvedValue(undefined),
+    setModel: vi.fn().mockResolvedValue(undefined),
     interrupt: vi.fn().mockResolvedValue(undefined),
     emit(message: unknown) {
       queue.push(message)
@@ -144,6 +146,26 @@ describe('SessionService', () => {
 
     service.respondToSession(projectId, session.id, 'keep going')
     expect(service.listSessions(projectId)[0].state).toBe('running')
+  })
+
+  it('switches a live managed session to another model via the SDK control channel', async () => {
+    const summary = service.startSession(projectId, 'build the thing', 'plan')
+
+    await service.setSessionModel(summary.id, 'sonnet')
+    expect(currentQuery.setModel).toHaveBeenCalledWith('sonnet')
+
+    // null means back to the CLI default, which the SDK expects as undefined.
+    await service.setSessionModel(summary.id, null)
+    expect(currentQuery.setModel).toHaveBeenCalledWith(undefined)
+
+    // The switch is noted in the transcript so the change is visible later.
+    const transcript = service.getTranscript(projectId, summary.id)
+    expect(transcript.some((i) => i.kind === 'system' && i.text.includes('Model changed to sonnet'))).toBe(
+      true
+    )
+
+    // Only live managed sessions can be switched.
+    await expect(service.setSessionModel('unknown-session', 'sonnet')).rejects.toThrow(/managed/)
   })
 
   it('surfaces permission prompts and resolves them via respondToPermission', async () => {

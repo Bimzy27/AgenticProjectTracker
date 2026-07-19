@@ -10,6 +10,7 @@ import type {
 } from '@shared/domain'
 import { AGENT_MODEL_PRESETS, agentModelLabel } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
+import { ModelSwitch } from '../components/ModelSwitch'
 import {
   applyTaskListView,
   DEFAULT_TASK_LIST_VIEW,
@@ -399,7 +400,9 @@ function TaskDetail({
           <span className="muted">Archived; revive the task to work on it again.</span>
         </div>
       ) : (
-        <TaskActions project={project} task={task} run={run} onAction={onAction} />
+        // Keyed by task so drafted answers and a pending model switch never leak
+        // into another task when the selection changes.
+        <TaskActions key={task.id} project={project} task={task} run={run} onAction={onAction} />
       )}
 
       {run && <RunPanel run={run} task={task} onOpenTranscript={onOpenTranscript} />}
@@ -420,6 +423,8 @@ function TaskActions({
 }): React.JSX.Element | null {
   const [answer, setAnswer] = useState('')
   const [feedback, setFeedback] = useState('')
+  // undefined keeps the task's model; string/null switches the run's model on answer/resume.
+  const [nextModel, setNextModel] = useState<string | null | undefined>(undefined)
 
   const invoke = (method: 'delegateTask' | 'stopRun' | 'resumeRun' | 'acceptTask') => () =>
     onAction(() => tracker.invoke(method, project.id, task.id))
@@ -458,9 +463,18 @@ function TaskActions({
           <pre className="escalation-message">{run?.escalation?.message ?? 'Waiting for input.'}</pre>
           {interrupted ? (
             <div className="task-action-bar">
-              <button className="primary" onClick={invoke('resumeRun')}>
+              <button
+                className="primary"
+                onClick={() =>
+                  onAction(async () => {
+                    await tracker.invoke('resumeRun', project.id, task.id, nextModel)
+                    setNextModel(undefined)
+                  })
+                }
+              >
                 Resume run
               </button>
+              <ModelSwitch current={task.model} value={nextModel} onChange={setNextModel} />
               <button className="danger" onClick={invoke('stopRun')}>
                 Mark failed
               </button>
@@ -478,13 +492,15 @@ function TaskActions({
                   disabled={!answer.trim()}
                   onClick={() =>
                     onAction(async () => {
-                      await tracker.invoke('answerRun', project.id, task.id, answer.trim())
+                      await tracker.invoke('answerRun', project.id, task.id, answer.trim(), nextModel)
                       setAnswer('')
+                      setNextModel(undefined)
                     })
                   }
                 >
                   Send answer
                 </button>
+                <ModelSwitch current={task.model} value={nextModel} onChange={setNextModel} />
                 <button className="danger" onClick={invoke('stopRun')}>
                   Mark failed
                 </button>

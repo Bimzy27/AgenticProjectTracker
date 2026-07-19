@@ -24,6 +24,7 @@ class FakeSessions implements RunSessionPort {
   sessions: FakeSession[] = []
   sent: Array<{ sessionId: string; message: string }> = []
   interrupted: string[] = []
+  modelSwitches: Array<{ sessionId: string; model: string | null }> = []
   private readonly dead = new Set<string>()
   private seq = 0
 
@@ -60,6 +61,11 @@ class FakeSessions implements RunSessionPort {
   sendToSession(sessionId: string, message: string): void {
     if (this.dead.has(sessionId)) throw new Error('Session has ended')
     this.sent.push({ sessionId, message })
+  }
+
+  async setSessionModel(sessionId: string, model: string | null): Promise<void> {
+    if (this.dead.has(sessionId)) throw new Error('Session has ended')
+    this.modelSwitches.push({ sessionId, model })
   }
 
   isSessionAlive(sessionId: string): boolean {
@@ -200,7 +206,7 @@ describe('RunOrchestrator', () => {
     expect(accepted?.detail).toBe('Auto-approved on completion')
   })
 
-  it('does not auto-approve a run that escalates a question', () => {
+  it('does not auto-approve a run that escalates a question', async () => {
     const orch = makeOrchestrator()
     const task = makeTask('p1', { autoApprove: true })
     orch.delegate(task.id)
@@ -212,7 +218,7 @@ describe('RunOrchestrator', () => {
     expect(orch.latestRun(task.id)!.state).toBe('needs-input')
 
     // Once answered and completed, auto-approve still finishes it without review.
-    orch.answer(task.id, 'use OAuth')
+    await orch.answer(task.id, 'use OAuth')
     sessions.turn(sessions.last(), COMPLETE_OK)
     expect(tasks.getOrThrow(task.id).state).toBe('done')
   })
@@ -302,7 +308,7 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(parked.id).state).toBe('running')
   })
 
-  it('looping mode does not bypass questions: needs-input still blocks the loop', () => {
+  it('looping mode does not bypass questions: needs-input still blocks the loop', async () => {
     const orch = makeOrchestrator({ isProjectLooping: () => true })
     const first = makeTask('p1')
     const second = makeTask('p1')
@@ -316,7 +322,7 @@ describe('RunOrchestrator', () => {
     expect(sessions.sessions).toHaveLength(1)
 
     // Once answered and completed, the loop continues with the next task.
-    orch.answer(first.id, 'use OAuth')
+    await orch.answer(first.id, 'use OAuth')
     sessions.turn(sessions.last(), COMPLETE_OK)
     expect(tasks.getOrThrow(first.id).state).toBe('done')
     expect(tasks.getOrThrow(second.id).state).toBe('running')
@@ -345,7 +351,7 @@ describe('RunOrchestrator', () => {
     expect(sessions.last().model).toBeNull()
   })
 
-  it('forwards the task model to the run session, including on resume', () => {
+  it('forwards the task model to the run session, including on resume', async () => {
     const orch = makeOrchestrator()
     const task = makeTask('p1', { model: 'opus' })
     orch.delegate(task.id)
@@ -354,11 +360,82 @@ describe('RunOrchestrator', () => {
     // A question escalates; killing the session forces the answer to resume through the SDK.
     sessions.turn(sessions.last(), status('question', 'which auth provider?'))
     sessions.kill(sessions.last(), null)
-    orch.answer(task.id, 'use OAuth')
+    await orch.answer(task.id, 'use OAuth')
 
     const resumed = sessions.last()
     expect(resumed.resumeSessionId).toBe('sdk-fake-1')
     expect(resumed.model).toBe('opus')
+  })
+
+  it('switches a live session to another model when the answer picks one', async () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { model: 'opus' })
+    orch.delegate(task.id)
+    const session = sessions.last()
+    sessions.turn(session, status('question', 'Usage limit reached; how should I continue?'))
+
+    await orch.answer(task.id, 'Continue on Sonnet', 'sonnet')
+
+    // The live session is switched in place; the answer goes to the same session.
+    expect(sessions.modelSwitches).toEqual([{ sessionId: session.id, model: 'sonnet' }])
+    expect(sessions.sessions).toHaveLength(1)
+    expect(sessions.sent[0].message).toContain('Continue on Sonnet')
+    // The task definition carries the new model so later restarts inherit it.
+    expect(tasks.getOrThrow(task.id).model).toBe('sonnet')
+    const run = orch.latestRun(task.id)!
+    expect(run.state).toBe('active')
+    expect(run.events.find((e) => e.kind === 'model-changed')?.detail).toBe(
+      'Model changed from Opus to Sonnet'
+    )
+  })
+
+  it('starts the resumed session on the new model when the old session has died', async () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { model: 'opus' })
+    orch.delegate(task.id)
+    sessions.turn(sessions.last(), status('question', 'which auth provider?'))
+    sessions.kill(sessions.last(), null)
+
+    await orch.answer(task.id, 'use OAuth', 'haiku')
+
+    // No live switch is possible; the SDK resume starts on the new model instead.
+    expect(sessions.modelSwitches).toHaveLength(0)
+    const resumed = sessions.last()
+    expect(resumed.resumeSessionId).toBe('sdk-fake-1')
+    expect(resumed.model).toBe('haiku')
+    expect(tasks.getOrThrow(task.id).model).toBe('haiku')
+  })
+
+  it('resumes an interrupted run on another model when one is picked', async () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { model: 'opus' })
+    orch.delegate(task.id)
+    sessions.turn(sessions.last(), status('working', 'going'))
+    sessions.kill(sessions.last(), 'usage credits exhausted')
+
+    // null switches to the CLI's default model.
+    await orch.resume(task.id, null)
+
+    expect(sessions.last().model).toBeNull()
+    expect(tasks.getOrThrow(task.id).model).toBeNull()
+    expect(orch.latestRun(task.id)!.events.find((e) => e.kind === 'model-changed')?.detail).toBe(
+      'Model changed from Opus to Default'
+    )
+  })
+
+  it('answering with the unchanged model records no model-changed event', async () => {
+    const orch = makeOrchestrator()
+    const task = makeTask('p1', { model: 'opus' })
+    orch.delegate(task.id)
+    const session = sessions.last()
+    sessions.turn(session, status('question', 'which auth provider?'))
+
+    await orch.answer(task.id, 'use OAuth', 'opus')
+
+    // The live switch is still applied (retry semantics), but nothing changed.
+    expect(sessions.modelSwitches).toEqual([{ sessionId: session.id, model: 'opus' }])
+    expect(orch.latestRun(task.id)!.events.some((e) => e.kind === 'model-changed')).toBe(false)
+    expect(tasks.getOrThrow(task.id).model).toBe('opus')
   })
 
   it('archives an accepted task and refuses to delegate it until revived', () => {
@@ -446,7 +523,7 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(task.id).state).toBe('needs-input')
   })
 
-  it('escalates questions immediately without consuming recovery attempts', () => {
+  it('escalates questions immediately without consuming recovery attempts', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -459,7 +536,7 @@ describe('RunOrchestrator', () => {
     expect(run.nudgesUsed).toBe(0)
     expect(sessions.sent).toHaveLength(0)
 
-    orch.answer(task.id, 'Use SQLite')
+    await orch.answer(task.id, 'Use SQLite')
     expect(tasks.getOrThrow(task.id).state).toBe('running')
     expect(orch.latestRun(task.id)!.state).toBe('active')
     expect(sessions.sent[0].message).toContain('Use SQLite')
@@ -567,7 +644,7 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(c1.id).state).toBe('queued')
   })
 
-  it('marks active runs interrupted on restart and resumes them by session id', () => {
+  it('marks active runs interrupted on restart and resumes them by session id', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -588,7 +665,7 @@ describe('RunOrchestrator', () => {
     expect(run.events.map((e) => e.kind)).toContain('interrupted')
     expect(tasks.getOrThrow(task.id).state).toBe('needs-input')
 
-    orch2.resume(task.id)
+    await orch2.resume(task.id)
     expect(sessions2.last().resumeSessionId).toBe(sdkId)
     run = orch2.latestRun(task.id)!
     expect(run.state).toBe('active')
@@ -598,7 +675,7 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(task.id).state).toBe('review')
   })
 
-  it('interrupted sessions surface as resumable when the stream dies mid-run', () => {
+  it('interrupted sessions surface as resumable when the stream dies mid-run', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -612,11 +689,11 @@ describe('RunOrchestrator', () => {
     expect(run.escalation!.message).toContain('CLI crashed')
     expect(tasks.getOrThrow(task.id).state).toBe('needs-input')
 
-    orch.resume(task.id)
+    await orch.resume(task.id)
     expect(sessions.last().resumeSessionId).toBe(`sdk-${session.id}`)
   })
 
-  it('restarts from a fresh briefing when the session died before it had an id', () => {
+  it('restarts from a fresh briefing when the session died before it had an id', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -629,7 +706,7 @@ describe('RunOrchestrator', () => {
     expect(run.state).toBe('interrupted')
     expect(run.sdkSessionId).toBeNull()
 
-    orch.resume(task.id)
+    await orch.resume(task.id)
     const restarted = sessions.last()
     expect(restarted.id).not.toBe(session.id)
     expect(restarted.resumeSessionId).toBeUndefined()
@@ -644,13 +721,13 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(task.id).state).toBe('review')
   })
 
-  it('carries the user answer into the restart briefing when nothing can be resumed', () => {
+  it('carries the user answer into the restart briefing when nothing can be resumed', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
     sessions.kill(sessions.last(), 'native binary failed to launch')
 
-    orch.answer(task.id, 'Try again; the binary is fixed now')
+    await orch.answer(task.id, 'Try again; the binary is fixed now')
     const restarted = sessions.last()
     expect(restarted.resumeSessionId).toBeUndefined()
     expect(restarted.prompt).toContain('Build the login page')

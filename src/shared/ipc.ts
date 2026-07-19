@@ -88,12 +88,20 @@ export interface TrackerApi {
   delegateTask(projectId: string, taskId: string): Promise<TaskDefinition>
   /** Latest run for the task; null when it has never been delegated. */
   getTaskRun(projectId: string, taskId: string): Promise<RunRecord | null>
-  /** Deliver the user's answer to an escalated run and resume it. */
-  answerRun(projectId: string, taskId: string, answer: string): Promise<void>
+  /**
+   * Deliver the user's answer to an escalated run and resume it. An explicit
+   * `model` switches the run to that model (alias, full id, or null for the
+   * CLI default) before the answer is sent, e.g. when the current model's
+   * usage limit is exhausted; leaving it undefined keeps the task's model.
+   */
+  answerRun(projectId: string, taskId: string, answer: string, model?: string | null): Promise<void>
   /** Interrupt an active run and move the task to failed. */
   stopRun(projectId: string, taskId: string): Promise<void>
-  /** Reattach an interrupted run to its session and continue. */
-  resumeRun(projectId: string, taskId: string): Promise<void>
+  /**
+   * Reattach an interrupted run to its session and continue. An explicit
+   * `model` switches the run to that model before it resumes (see answerRun).
+   */
+  resumeRun(projectId: string, taskId: string, model?: string | null): Promise<void>
   /** Accept a reviewed task as done. */
   acceptTask(projectId: string, taskId: string): Promise<void>
   /** Re-queue a reviewed task with feedback for the next briefing. */

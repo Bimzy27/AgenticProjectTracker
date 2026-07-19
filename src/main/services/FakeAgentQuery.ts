@@ -29,7 +29,10 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
     const script = JSON.parse(readFileSync(scriptPath, 'utf8')) as FakeScript
     const sessionId = `fake-session-${++sessionCounter}`
     let turn = 0
-    recordCall(scriptPath, args.options)
+    recordCall(scriptPath, {
+      model: args.options?.model ?? null,
+      permissionMode: args.options?.permissionMode ?? null
+    })
 
     async function* stream(): AsyncGenerator<unknown> {
       if (typeof args.prompt === 'string') return
@@ -65,7 +68,9 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
 
     return Object.assign(stream(), {
       interrupt: async () => {},
-      setPermissionMode: async () => {}
+      setPermissionMode: async () => {},
+      // Live model switches are recorded so E2E tests can assert them.
+      setModel: async (model?: string) => recordCall(scriptPath, { setModel: model ?? null })
     })
   }
 
@@ -73,10 +78,11 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
 }
 
 /**
- * Append the options each query() received to `<script>.calls.json`, so E2E
- * tests can assert what would have reached the real Agent SDK (e.g. the model).
+ * Append one SDK interaction to `<script>.calls.json`, so E2E tests can assert
+ * what would have reached the real Agent SDK: query() options as
+ * `{ model, permissionMode }` entries, live model switches as `{ setModel }`.
  */
-function recordCall(scriptPath: string, options?: { model?: string; permissionMode?: string }): void {
+function recordCall(scriptPath: string, entry: Record<string, unknown>): void {
   const callsPath = scriptPath + '.calls.json'
   let calls: unknown[] = []
   try {
@@ -85,6 +91,6 @@ function recordCall(scriptPath: string, options?: { model?: string; permissionMo
   } catch {
     // First call: no file yet.
   }
-  calls.push({ model: options?.model ?? null, permissionMode: options?.permissionMode ?? null })
+  calls.push(entry)
   writeFileSync(callsPath, JSON.stringify(calls))
 }

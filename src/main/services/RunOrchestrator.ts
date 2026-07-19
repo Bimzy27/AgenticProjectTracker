@@ -12,7 +12,7 @@ import type {
   SessionSummary,
   TaskDefinition
 } from '@shared/domain'
-import { ACTIVE_TASK_STATES } from '@shared/domain'
+import { ACTIVE_TASK_STATES, agentModelLabel } from '@shared/domain'
 import {
   RESUME_PROMPT,
   STATUS_REPROMPT,
@@ -45,6 +45,8 @@ export interface RunSessionPort {
     resumeSessionId?: string
   ): SessionSummary
   sendToSession(sessionId: string, message: string): void
+  /** Switch a live session's model; rejects when the session has ended. */
+  setSessionModel(sessionId: string, model: string | null): Promise<void>
   isSessionAlive(sessionId: string): boolean
   sdkSessionIdFor(sessionId: string): string | null
   interruptSession(projectId: string, sessionId: string): Promise<void>
@@ -182,11 +184,16 @@ export class RunOrchestrator {
     return this.tasks.getOrThrow(taskId)
   }
 
-  /** Deliver the user's answer to an escalated run; resumes the session if needed. */
-  answer(taskId: string, answerText: string): void {
-    const task = this.tasks.getOrThrow(taskId)
+  /**
+   * Deliver the user's answer to an escalated run; resumes the session if
+   * needed. An explicit `model` switches the run to that model first (see
+   * switchModel); undefined keeps the task's model.
+   */
+  async answer(taskId: string, answerText: string, model?: string | null): Promise<void> {
+    let task = this.tasks.getOrThrow(taskId)
     if (task.state !== 'needs-input') throw new Error('Task is not waiting for input')
     const run = this.requireRun(taskId)
+    if (model !== undefined) task = await this.switchModel(run, task, model)
     this.pushEvent(run, 'answered', answerText)
     this.resumeWith(run, task, buildAnswer(answerText), answerText)
   }
@@ -207,12 +214,17 @@ export class RunOrchestrator {
     this.pump()
   }
 
-  /** Reattach an interrupted run to its session and continue. */
-  resume(taskId: string): void {
-    const task = this.tasks.getOrThrow(taskId)
+  /**
+   * Reattach an interrupted run to its session and continue. An explicit
+   * `model` switches the run to that model first (see switchModel); undefined
+   * keeps the task's model.
+   */
+  async resume(taskId: string, model?: string | null): Promise<void> {
+    let task = this.tasks.getOrThrow(taskId)
     const run = this.requireRun(taskId)
     if (run.state !== 'interrupted') throw new Error('Only interrupted runs can be resumed')
     this.assertCapacityFor(run)
+    if (model !== undefined) task = await this.switchModel(run, task, model)
     this.pushEvent(run, 'resumed', 'Resumed by the user')
     this.resumeWith(run, task, RESUME_PROMPT)
   }
@@ -380,6 +392,35 @@ export class RunOrchestrator {
     run.sessionId = summary.id
     this.tasks.setState(task.id, 'running')
     this.commit(run)
+  }
+
+  /**
+   * Switch the model driving a parked run before it resumes, the escape hatch
+   * when the current model's usage credits run out mid-task. The task
+   * definition is updated first so any later session start inherits the
+   * choice, then a still-live session is switched in place through the SDK.
+   * The live switch is attempted even when the model is unchanged, so
+   * retrying after a failed switch still reaches the session.
+   */
+  private async switchModel(
+    run: RunRecord,
+    task: TaskDefinition,
+    model: string | null
+  ): Promise<TaskDefinition> {
+    // Capture the previous model first: setModel mutates the shared task object.
+    const previousModel = task.model
+    const updated = this.tasks.setModel(task.id, model)
+    if (updated.model !== previousModel) {
+      this.pushEvent(
+        run,
+        'model-changed',
+        `Model changed from ${agentModelLabel(previousModel)} to ${agentModelLabel(updated.model)}`
+      )
+    }
+    if (this.sessions.isSessionAlive(run.sessionId)) {
+      await this.sessions.setSessionModel(run.sessionId, updated.model)
+    }
+    return updated
   }
 
   /**

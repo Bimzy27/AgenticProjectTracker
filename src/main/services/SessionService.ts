@@ -87,7 +87,7 @@ class ManagedSession {
     private readonly cwd: string,
     mode: SessionPermissionMode,
     /** Model alias or full id for the session; null inherits the CLI default. */
-    private readonly model: string | null,
+    private model: string | null,
     private readonly onChange: (session: ManagedSession, newItems: TranscriptItem[]) => void,
     private readonly queryFn: QueryFn,
     /**
@@ -155,6 +155,24 @@ class ManagedSession {
       }
     }
     this.touch([])
+  }
+
+  /**
+   * Switch the live session to another model (alias, full id, or null for the
+   * CLI default); later turns use it. Applied through the SDK's control
+   * channel, so it works while the session is parked waiting for input.
+   */
+  async setModel(model: string | null): Promise<void> {
+    if (!this.queryHandle) throw new Error('Session not started')
+    await this.queryHandle.setModel(model ?? undefined)
+    this.model = model
+    this.touch([
+      {
+        kind: 'system',
+        text: `Model changed to ${model ?? 'the CLI default'}`,
+        at: new Date().toISOString()
+      }
+    ])
   }
 
   /** Answer the oldest pending permission prompt. */
@@ -385,6 +403,16 @@ export class SessionService {
   /** Programmatic follow-up from the run loop; only live managed sessions qualify. */
   sendToSession(sessionId: string, message: string): void {
     this.requireManaged(sessionId).send(message)
+  }
+
+  /**
+   * Switch a live managed session to another model (alias, full id, or null
+   * for the CLI default); used by the run loop when the user changes a parked
+   * run's model. Rejects when the session has ended, in which case the caller
+   * starts a fresh session carrying the new model instead.
+   */
+  async setSessionModel(sessionId: string, model: string | null): Promise<void> {
+    await this.requireManaged(sessionId).setModel(model)
   }
 
   isSessionAlive(sessionId: string): boolean {

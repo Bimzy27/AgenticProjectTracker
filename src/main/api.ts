@@ -149,10 +149,11 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     // Agent run loop
     delegateTask: async (_projectId: string, taskId: string) => deps.orchestrator.delegate(taskId),
     getTaskRun: async (_projectId: string, taskId: string) => deps.orchestrator.latestRun(taskId),
-    answerRun: async (_projectId: string, taskId: string, answer: string) =>
-      deps.orchestrator.answer(taskId, answer),
+    answerRun: async (_projectId: string, taskId: string, answer: string, model?: string | null) =>
+      deps.orchestrator.answer(taskId, answer, model),
     stopRun: async (_projectId: string, taskId: string) => deps.orchestrator.stop(taskId),
-    resumeRun: async (_projectId: string, taskId: string) => deps.orchestrator.resume(taskId),
+    resumeRun: async (_projectId: string, taskId: string, model?: string | null) =>
+      deps.orchestrator.resume(taskId, model),
     acceptTask: async (_projectId: string, taskId: string) => deps.orchestrator.accept(taskId),
     sendBackTask: async (_projectId: string, taskId: string, feedback: string) =>
       deps.orchestrator.sendBack(taskId, feedback),

@@ -374,6 +374,7 @@ export interface RunEvent {
     | 'stopped'
     | 'interrupted'
     | 'resumed'
+    | 'model-changed'
   detail: string
   at: string
 }
@@ -501,6 +502,12 @@ export interface InboxItem {
   projectName: string
   taskId: string | null
   taskTitle: string | null
+  /**
+   * Current model of the owning task (see TaskDefinition.model), so answer and
+   * resume actions can offer a model switch; null for the CLI default or when
+   * the item has no task.
+   */
+  taskModel: string | null
   runId: string | null
   sessionId: string | null
   /** Question text, failure history, or completion summary. */

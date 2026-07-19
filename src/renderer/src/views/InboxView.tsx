@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { InboxItem } from '@shared/domain'
+import { ModelSwitch } from '../components/ModelSwitch'
 import { formatRelativeTime, tracker, useTrackerEvent } from '../tracker'
 
 const KIND_LABEL: Record<InboxItem['kind'], string> = {
@@ -65,14 +66,17 @@ function InboxCard({
   onAct: (fn: () => Promise<unknown>) => void
 }): React.JSX.Element {
   const [reply, setReply] = useState('')
+  // undefined keeps the task's model; string/null switches the run's model on answer/resume.
+  const [nextModel, setNextModel] = useState<string | null | undefined>(undefined)
 
   const answer = (): void => {
     if (!item.taskId) return
     const text = reply.trim()
     if (!text) return
     onAct(async () => {
-      await tracker.invoke('answerRun', item.projectId, item.taskId!, text)
+      await tracker.invoke('answerRun', item.projectId, item.taskId!, text, nextModel)
       setReply('')
+      setNextModel(undefined)
     })
   }
 
@@ -124,6 +128,7 @@ function InboxCard({
               <button className="primary" disabled={!reply.trim()} onClick={answer}>
                 Send
               </button>
+              <ModelSwitch current={item.taskModel} value={nextModel} onChange={setNextModel} />
             </>
           )}
         {item.kind === 'permission' && item.sessionId && (
@@ -149,10 +154,16 @@ function InboxCard({
           <>
             <button
               className="primary"
-              onClick={() => onAct(() => tracker.invoke('resumeRun', item.projectId, item.taskId!))}
+              onClick={() =>
+                onAct(async () => {
+                  await tracker.invoke('resumeRun', item.projectId, item.taskId!, nextModel)
+                  setNextModel(undefined)
+                })
+              }
             >
               Resume
             </button>
+            <ModelSwitch current={item.taskModel} value={nextModel} onChange={setNextModel} />
             <button
               className="danger"
               onClick={() => onAct(() => tracker.invoke('stopRun', item.projectId, item.taskId!))}

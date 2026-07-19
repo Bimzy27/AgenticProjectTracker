@@ -109,8 +109,13 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
     page.locator('.inbox-card').getByText('Should the greeting be formal or casual?')
   ).toBeVisible()
 
-  // Answer in place: the run resumes and completes into review.
+  // Answer in place, switching the run to another model first (the escape
+  // hatch when the current model's usage credits run out): the run resumes on
+  // the new model and completes into review.
   await page.getByPlaceholder('Answer the agent…').fill('Casual, please')
+  const modelSwitch = page.locator('.inbox-card').getByLabel('Model for the resumed run')
+  await expect(modelSwitch).toHaveValue('__keep')
+  await modelSwitch.selectOption('sonnet')
   await page.locator('.inbox-card').getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('.inbox-card .badge.inbox-review')).toBeVisible()
   await expect(page.getByText('Added the casual greeting and verified it')).toBeVisible()
@@ -126,6 +131,10 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   // Review from the task detail: completion summary, gate result, links, accept.
   await page.locator('.inbox-card').getByRole('button', { name: 'Open task' }).click()
   await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  // The model switch stuck: the task badge now shows Sonnet and the run
+  // timeline records the change.
+  await expect(page.locator('.task-detail-header').getByText('Sonnet')).toBeVisible()
+  await expect(page.locator('.run-timeline').getByText('Model changed from Opus to Sonnet')).toBeVisible()
   await expect(page.getByText('patrol green: typecheck, lint, tests')).toBeVisible()
   await expect(page.locator('.review-panel').getByRole('link', { name: /Test the changes/ })).toHaveAttribute(
     'href',
@@ -159,9 +168,11 @@ test('delegated task escalates a question to the inbox, resumes on answer, and p
   await page.getByRole('button', { name: '⚑ View task' }).click()
   await expect(page.getByRole('heading', { name: 'Greeting feature' })).toBeVisible()
 
-  // The task's model selection reached the agent query at the SDK boundary.
+  // The task's model selection reached the agent query at the SDK boundary,
+  // and the answer's model switch was applied to the live session.
   const calls = JSON.parse(readFileSync(scriptPath + '.calls.json', 'utf8'))
   expect(calls[0]).toMatchObject({ model: 'opus', permissionMode: 'acceptEdits' })
+  expect(calls).toContainEqual({ setModel: 'sonnet' })
 })
 
 test('exhausted recovery escalates to the inbox and can be failed by the user', async () => {

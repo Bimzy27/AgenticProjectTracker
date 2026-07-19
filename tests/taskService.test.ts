@@ -78,6 +78,24 @@ describe('TaskService', () => {
     expect(service.create('p1', { ...input, model: '' }).model).toBeNull()
   })
 
+  it('setModel changes only the model and is allowed while the run is live', () => {
+    const task = service.create('p1', { ...input, model: 'opus' })
+    service.setState(task.id, 'queued')
+    service.setState(task.id, 'running')
+    service.setState(task.id, 'needs-input')
+
+    // update() refuses while the run is live, but a model switch is safe: it
+    // only affects future turns, which is exactly the escape hatch needed when
+    // a model's usage credits run out mid-task.
+    expect(() => service.update(task.id, { model: 'sonnet' })).toThrow(/stop the run first/)
+    service.setModel(task.id, 'sonnet')
+    expect(service.getOrThrow(task.id).model).toBe('sonnet')
+
+    // Blank selections normalize to the CLI default, like everywhere else.
+    service.setModel(task.id, '  ')
+    expect(service.getOrThrow(task.id).model).toBeNull()
+  })
+
   it('stores and toggles the auto-approve flag', () => {
     const auto = service.create('p1', { ...input, autoApprove: true })
     expect(auto.autoApprove).toBe(true)
