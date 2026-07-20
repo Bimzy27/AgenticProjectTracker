@@ -62,7 +62,19 @@ function createWindow(): BrowserWindow {
       sandbox: false
     }
   })
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    win.show()
+    // Test seam: hover-driven UI (chart tooltips, info tips) must not race
+    // the OS cursor. When the physical cursor happens to sit over the window,
+    // the OS feeds its position into Chromium and CSS :hover flips to
+    // wherever it rests, fighting the synthetic pointer the tests move.
+    // Ignoring OS mouse input removes the window from system hit-testing, so
+    // hover state is driven purely by the CDP events Playwright injects -
+    // deterministic regardless of where the physical cursor is. CDP input
+    // bypasses the OS layer, so Playwright clicks and hovers still land.
+    // Applied after show(): on Windows the style does not stick on a hidden window.
+    if (process.env.APT_TEST_IGNORE_OS_MOUSE) win.setIgnoreMouseEvents(true)
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }

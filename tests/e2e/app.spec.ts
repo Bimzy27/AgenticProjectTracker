@@ -124,7 +124,9 @@ test.beforeAll(async () => {
       APT_CLAUDE_HOME: claudeHome,
       APT_TEST_PICK_DIR: repo,
       APT_TEST_EDITOR_CMD: editorCmd,
-      APT_USAGE_ENDPOINT: usageEndpoint
+      APT_USAGE_ENDPOINT: usageEndpoint,
+      // Usage-overlay hover assertions must not race the physical cursor; see createWindow.
+      APT_TEST_IGNORE_OS_MOUSE: '1'
     }
   })
   page = await app.firstWindow()

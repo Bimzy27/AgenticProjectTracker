@@ -49,7 +49,9 @@ test.beforeAll(async () => {
       APT_USER_DATA_DIR: userData,
       APT_CLAUDE_HOME: claudeHome,
       APT_TEST_PICK_DIR: repo,
-      APT_FAKE_AGENT_SCRIPT: scriptPath
+      APT_FAKE_AGENT_SCRIPT: scriptPath,
+      // Info-tip hover assertions must not race the physical cursor; see createWindow.
+      APT_TEST_IGNORE_OS_MOUSE: '1'
     }
   })
   page = await app.firstWindow()
