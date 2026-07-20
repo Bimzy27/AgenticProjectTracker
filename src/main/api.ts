@@ -1,5 +1,6 @@
 import type {
   AddProjectInput,
+  AnalyticsWidgetInput,
   ProjectPatch,
   SessionCurationPatch,
   SessionPermissionMode,
@@ -57,12 +58,6 @@ export interface ApiDeps {
 }
 
 export function createTrackerApi(deps: ApiDeps): TrackerApi {
-  const requireGithub = (projectId: string): { owner: string; repo: string } => {
-    const project = deps.store.getOrThrow(projectId)
-    if (!project.github) throw new Error('Project has no linked GitHub repo')
-    return project.github
-  }
-
   return {
     // Projects
     listProjects: async () => deps.store.list(),
@@ -85,6 +80,7 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     },
     removeProject: async (id: string) => {
       deps.projects.remove(id)
+      deps.analytics.removeProject(id)
       deps.onProjectsChanged()
     },
     getProjectStatus: async (id: string) => deps.projects.getStatus(id),
@@ -175,9 +171,14 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     getPipelineRuns: async (projectId: string) => deps.pipelines.getRuns(projectId),
     getRateLimit: async () => deps.github.getRateLimit(),
 
-    // Release analytics
-    getReleases: async (projectId: string) => deps.analytics.getReleases(requireGithub(projectId)),
-    getTraffic: async (projectId: string) => deps.analytics.getTraffic(requireGithub(projectId)),
+    // Analytics widgets
+    listWidgetKinds: async () => deps.analytics.listKinds(),
+    getAnalyticsWidgets: async (projectId: string) =>
+      deps.analytics.getWidgets(deps.store.getOrThrow(projectId)),
+    setAnalyticsWidgets: async (projectId: string, widgets: AnalyticsWidgetInput[]) =>
+      deps.analytics.setWidgets(deps.store.getOrThrow(projectId), widgets),
+    getWidgetData: async (projectId: string, widgetId: string) =>
+      deps.analytics.getWidgetData(deps.store.getOrThrow(projectId), widgetId),
 
     // Settings / GitHub auth
     getGithubAuthState: async () => deps.tokens.getAuthState(),

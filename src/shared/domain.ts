@@ -585,18 +585,98 @@ export interface ReleaseInfo {
   assets: ReleaseAsset[]
 }
 
-export interface TrafficPoint {
-  date: string
-  count: number
-  uniques: number
+// ---------- Analytics widgets ----------
+
+/**
+ * Input types the generic widget-config form can render. 'secret' values are
+ * write-only: stored encrypted in the main process and never sent back to the
+ * renderer (see AnalyticsWidget.secretsSet).
+ */
+export type WidgetConfigFieldType = 'text' | 'url' | 'secret'
+
+/**
+ * One configurable setting of a widget kind. The renderer builds the add/edit
+ * form generically from these, so new sources need no UI changes.
+ */
+export interface WidgetConfigField {
+  key: string
+  label: string
+  type: WidgetConfigFieldType
+  required: boolean
+  /** Example value shown as the input placeholder; null for none. */
+  placeholder: string | null
+  /** Short explanation shown under the field; null for none. */
+  help: string | null
 }
 
-export interface TrafficMetrics {
-  /** False when the token lacks access to traffic data for the repo. */
-  available: boolean
-  views: TrafficPoint[]
-  clones: TrafficPoint[]
+/** Describes one pluggable analytics source that widgets can be created from. */
+export interface WidgetKindDescriptor {
+  /** Stable identifier, e.g. 'github-traffic-views' or 'json-metric'. */
+  kind: string
+  label: string
+  description: string
+  /** True when the source reads from the project's linked GitHub repo. */
+  requiresGithub: boolean
+  configFields: WidgetConfigField[]
 }
+
+/** One widget placed on a project's analytics dashboard. */
+export interface AnalyticsWidget {
+  id: string
+  /** Which source drives the widget (see WidgetKindDescriptor.kind). */
+  kind: string
+  /** Custom heading; null falls back to the kind's label. */
+  title: string | null
+  /** Non-secret settings keyed by the kind's config fields. */
+  config: Record<string, string>
+  /**
+   * Keys of secret config fields that currently have a stored value. The
+   * values themselves never leave the main process.
+   */
+  secretsSet: string[]
+}
+
+/** Write shape for replacing a project's dashboard (full-list semantics). */
+export interface AnalyticsWidgetInput {
+  /** Existing widget id to keep its stored secrets; omitted for new widgets. */
+  id?: string
+  kind: string
+  title: string | null
+  config: Record<string, string>
+  /**
+   * Plaintext secret values to store encrypted. A key absent here keeps the
+   * widget's existing stored value; an empty string clears it.
+   */
+  secrets?: Record<string, string>
+}
+
+/** A dated numeric sample of a timeseries widget. */
+export interface WidgetPoint {
+  /** ISO date of the sample. */
+  date: string
+  value: number
+  /** Extra tooltip lines for the point, e.g. '7 unique'. */
+  details: string[]
+}
+
+/** One tile of a stat widget. */
+export interface WidgetStat {
+  label: string
+  /** Preformatted display value, e.g. '12.4k'. */
+  value: string
+}
+
+/**
+ * Generic data envelope every widget resolves to, so the UI can render any
+ * source with the same components. 'unavailable' reports an expected,
+ * provider-known gap (missing token, no repo access) in-band instead of as an
+ * error; unexpected failures reject the getWidgetData call.
+ */
+export type WidgetData =
+  | { shape: 'timeseries'; unit: string; points: WidgetPoint[] }
+  | { shape: 'stat'; stats: WidgetStat[] }
+  | { shape: 'releases'; releases: ReleaseInfo[] }
+  | { shape: 'unavailable'; reason: string }
 
 // ---------- About ----------
 

@@ -6,8 +6,16 @@ import type { Project, WorkflowRun } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
 import { ActiveTasksService } from './services/ActiveTasksService'
-import { AnalyticsService, GithubMetricsProvider } from './services/AnalyticsService'
+import { AnalyticsService } from './services/AnalyticsService'
+import { DashboardStore } from './services/DashboardStore'
 import { EditorService } from './services/EditorService'
+import {
+  GithubReleasesProvider,
+  GithubRepoStatsProvider,
+  GithubTrafficProvider
+} from './services/GithubWidgetProviders'
+import { JsonMetricProvider } from './services/JsonMetricProvider'
+import { VercelAnalyticsProvider } from './services/VercelAnalyticsProvider'
 import { createFakeAgentQuery } from './services/FakeAgentQuery'
 import { GithubClient } from './services/GithubClient'
 import { GitService } from './services/GitService'
@@ -153,11 +161,13 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
   const activeTasks = new ActiveTasksService({ projects: store, tasks, runs: orchestrator })
   const release = new ReleaseService(git, tasks)
 
-  const tokens = new TokenStore(userDataDir, {
+  // One OS-vault cipher shared by every store that holds secrets.
+  const cipher = {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (text) => safeStorage.encryptString(text),
-    decrypt: (buf) => safeStorage.decryptString(buf)
-  })
+    encrypt: (text: string) => safeStorage.encryptString(text),
+    decrypt: (buf: Buffer) => safeStorage.decryptString(buf)
+  }
+  const tokens = new TokenStore(userDataDir, cipher)
   const github = new GithubClient(
     tokens,
     (state) => emitTrackerEvent('rate-limit-changed', state),
@@ -181,7 +191,18 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     Number.isFinite(pollMsOverride) && pollMsOverride > 0 ? pollMsOverride : undefined
   )
 
-  const analytics = new AnalyticsService(new GithubMetricsProvider(github))
+  const analytics = new AnalyticsService(
+    [
+      new GithubTrafficProvider(github, 'views'),
+      new GithubTrafficProvider(github, 'clones'),
+      new GithubReleasesProvider(github),
+      new GithubRepoStatsProvider(github),
+      new JsonMetricProvider(),
+      // APT_VERCEL_API is a test seam; undefined falls back to the real Vercel API.
+      new VercelAnalyticsProvider({ apiBase: process.env.APT_VERCEL_API })
+    ],
+    new DashboardStore(userDataDir, cipher)
+  )
   const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
 
   // APT_USAGE_ENDPOINT is a test seam; undefined falls back to the real API.

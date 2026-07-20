@@ -1,181 +1,202 @@
-import { useEffect, useState } from 'react'
-import type { GithubAuthState, Project, ReleaseInfo, TrafficMetrics, TrafficPoint } from '@shared/domain'
+import { useCallback, useEffect, useState } from 'react'
+import type { AnalyticsWidget, AnalyticsWidgetInput, Project, WidgetKindDescriptor } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
+import { WidgetBody } from '../components/WidgetBody'
+import type { WidgetResult } from '../components/WidgetBody'
+import { WidgetDialog } from '../components/WidgetDialog'
 import { tracker } from '../tracker'
 
+/**
+ * The project's analytics dashboard: a per-project, user-customizable list of
+ * pluggable widgets. Each widget loads independently, so one broken source
+ * shows its error on its own card instead of taking down the whole view.
+ */
 export function AnalyticsTab({ project }: { project: Project }): React.JSX.Element {
-  const [releases, setReleases] = useState<ReleaseInfo[] | null>(null)
-  const [traffic, setTraffic] = useState<TrafficMetrics | null>(null)
-  const [auth, setAuth] = useState<GithubAuthState | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [kinds, setKinds] = useState<WidgetKindDescriptor[] | null>(null)
+  const [widgets, setWidgets] = useState<AnalyticsWidget[] | null>(null)
+  const [results, setResults] = useState<Record<string, WidgetResult>>({})
+  /** null: closed; { widget: null }: add; { widget }: edit. */
+  const [dialog, setDialog] = useState<{ widget: AnalyticsWidget | null } | null>(null)
+  const [layoutError, setLayoutError] = useState<string | null>(null)
 
+  const fetchData = useCallback(
+    (widgetId: string): void => {
+      setResults((prev) => ({ ...prev, [widgetId]: 'loading' }))
+      tracker
+        .invoke('getWidgetData', project.id, widgetId)
+        .then((data) => setResults((prev) => ({ ...prev, [widgetId]: { data } })))
+        .catch((err) =>
+          setResults((prev) => ({
+            ...prev,
+            [widgetId]: { error: err instanceof Error ? err.message : String(err) }
+          }))
+        )
+    },
+    [project.id]
+  )
+
+  // The tab is keyed by project id in ProjectView, so a project switch
+  // remounts with fresh state and this effect only ever loads.
   useEffect(() => {
-    tracker.invoke('getGithubAuthState').then(setAuth).catch(console.error)
-    if (!project.github) return
+    tracker.invoke('listWidgetKinds').then(setKinds).catch(console.error)
     tracker
-      .invoke('getReleases', project.id)
-      .then(setReleases)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-    tracker.invoke('getTraffic', project.id).then(setTraffic).catch(console.error)
-  }, [project.id, project.github])
+      .invoke('getAnalyticsWidgets', project.id)
+      .then((list) => {
+        setWidgets(list)
+        for (const widget of list) fetchData(widget.id)
+      })
+      .catch((err) => setLayoutError(err instanceof Error ? err.message : String(err)))
+  }, [project.id, fetchData])
 
-  if (!project.github) {
-    return <div className="empty-state">Link a GitHub repo to this project to see releases and usage.</div>
+  /** Persist a full layout; refetches data only where `refetch` says so. */
+  const saveLayout = async (
+    inputs: AnalyticsWidgetInput[],
+    refetch: (savedId: string) => boolean
+  ): Promise<void> => {
+    const saved = await tracker.invoke('setAnalyticsWidgets', project.id, inputs)
+    setWidgets(saved)
+    for (const widget of saved) {
+      if (refetch(widget.id) || results[widget.id] === undefined) fetchData(widget.id)
+    }
   }
-  if (auth && !auth.configured) {
-    return <div className="empty-state">Analytics needs a GitHub token. Configure one in Settings.</div>
+
+  const upsertWidget = async (input: AnalyticsWidgetInput): Promise<void> => {
+    const current = widgets ?? []
+    const editing = input.id !== undefined && current.some((w) => w.id === input.id)
+    const inputs = editing
+      ? current.map((w) => (w.id === input.id ? input : toInput(w)))
+      : [...current.map(toInput), input]
+    // Refetch the edited widget; a new widget's id is unknown until saved and
+    // is covered by the "no result yet" refetch in saveLayout.
+    await saveLayout(inputs, (id) => id === input.id)
   }
-  if (error) return <div className="error-text">{error}</div>
+
+  const removeWidget = (widgetId: string): void => {
+    const inputs = (widgets ?? []).filter((w) => w.id !== widgetId).map(toInput)
+    saveLayout(inputs, () => false).catch((err) => setLayoutError(String(err)))
+  }
+
+  const moveWidget = (index: number, delta: -1 | 1): void => {
+    const list = [...(widgets ?? [])]
+    const target = index + delta
+    if (target < 0 || target >= list.length) return
+    ;[list[index], list[target]] = [list[target], list[index]]
+    saveLayout(list.map(toInput), () => false).catch((err) => setLayoutError(String(err)))
+  }
+
+  if (layoutError) return <div className="error-text">{layoutError}</div>
+  if (widgets === null || kinds === null) {
+    return <div className="empty-state">Loading dashboard…</div>
+  }
 
   return (
     <div className="analytics-tab">
-      <section>
-        <h2>
-          Traffic (last 14 days)
-          <InfoTip text="Repository traffic from GitHub. GitHub only retains the most recent 14 days, so longer trends are not available. Requires a token with push access to the repo." />
-        </h2>
-        {traffic === null ? (
-          <div className="empty-state">Loading traffic…</div>
-        ) : !traffic.available ? (
-          <div className="empty-state">
-            Traffic data is unavailable; the token needs push access to this repo.
-          </div>
-        ) : (
-          <div className="traffic-charts">
-            <TrafficChart
-              title="Views"
-              tip="How many times people viewed the repo on GitHub each day. Hover a bar to see that day's views and how many were unique visitors."
-              points={traffic.views}
-            />
-            <TrafficChart
-              title="Clones"
-              tip="How many times the repo was cloned each day, including clones made by CI systems. Hover a bar to see that day's clones and how many came from unique sources."
-              points={traffic.clones}
-            />
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2>
-          Releases
-          <InfoTip text="Published GitHub releases for this repo, newest first. Download counts are lifetime totals per asset - a rough proxy for how many people installed each version." />
-        </h2>
-        {releases === null ? (
-          <div className="empty-state">Loading releases…</div>
-        ) : releases.length === 0 ? (
-          <div className="empty-state">No releases exist for this repo yet.</div>
-        ) : (
-          releases.map((release) => <ReleaseCard key={release.tag} release={release} />)
-        )}
-      </section>
-    </div>
-  )
-}
-
-function ReleaseCard({ release }: { release: ReleaseInfo }): React.JSX.Element {
-  const totalDownloads = release.assets.reduce((sum, a) => sum + a.downloadCount, 0)
-  return (
-    <div className="release-card">
-      <div className="release-header">
-        <h3>
-          <a href={release.url} target="_blank" rel="noreferrer">
-            {release.name ?? release.tag}
-          </a>
-          <span className="badge">{release.tag}</span>
-        </h3>
+      <div className="widget-toolbar">
         <span className="muted">
-          {release.publishedAt ? new Date(release.publishedAt).toLocaleDateString() : 'unpublished'} ·{' '}
-          {totalDownloads} download{totalDownloads === 1 ? '' : 's'}
+          Your dashboard for this project - add widgets from any supported source.
         </span>
+        <button onClick={() => setDialog({ widget: null })}>+ Add widget</button>
       </div>
-      {release.assets.length > 0 && (
-        <table className="assets-table">
-          <tbody>
-            {release.assets.map((asset) => (
-              <tr key={asset.name}>
-                <td>{asset.name}</td>
-                <td>{formatBytes(asset.sizeBytes)}</td>
-                <td>{asset.downloadCount} downloads</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {release.notes && <pre className="release-notes">{truncate(release.notes, 1500)}</pre>}
-    </div>
-  )
-}
 
-/**
- * Minimal dependency-free bar chart. Each bar sits in a full-height slot that
- * acts as the hover/focus hit target and carries an in-DOM tooltip with the
- * day's details; native `title` tooltips are unreliable inside Electron and
- * invisible to keyboard users, so the bubble is our own (same pattern as
- * InfoTip and the sidebar usage meter).
- */
-function TrafficChart({
-  title,
-  tip,
-  points
-}: {
-  title: string
-  tip: string
-  points: TrafficPoint[]
-}): React.JSX.Element {
-  const max = Math.max(1, ...points.map((p) => p.count))
-  const total = points.reduce((sum, p) => sum + p.count, 0)
-  const unit = title.toLowerCase()
-  return (
-    <div className="traffic-chart">
-      <h3>
-        {title} <span className="muted">{total} total</span>
-        <InfoTip text={tip} />
-      </h3>
-      {points.length === 0 ? (
-        <div className="empty-state">No data.</div>
+      {widgets.length === 0 ? (
+        <div className="empty-state">
+          No widgets yet. Add one above
+          {project.github ? '' : ', or link a GitHub repo to get the default GitHub dashboard'}.
+        </div>
       ) : (
-        <div className="bars">
-          {points.map((p, i) => {
-            const count = `${p.count} ${p.count === 1 ? unit.replace(/s$/, '') : unit}`
-            return (
-              <div
-                key={p.date}
-                className={`bar-slot ${tipAlign(i, points.length)}`}
-                tabIndex={0}
-                aria-label={`${formatDay(p.date)}: ${count}, ${p.uniques} unique`}
-              >
-                <div className="bar" style={{ height: `${Math.max(4, (p.count / max) * 100)}%` }} />
-                <div className="bar-tip" role="tooltip">
-                  <span className="bar-tip-value">{count}</span>
-                  <span className="bar-tip-detail">{p.uniques} unique</span>
-                  <span className="bar-tip-detail">{formatDay(p.date)}</span>
-                </div>
-              </div>
-            )
-          })}
+        <div className="widget-grid">
+          {widgets.map((widget, index) => (
+            <WidgetCard
+              key={widget.id}
+              widget={widget}
+              descriptor={kinds.find((k) => k.kind === widget.kind) ?? null}
+              result={results[widget.id] ?? 'loading'}
+              isFirst={index === 0}
+              isLast={index === widgets.length - 1}
+              onMoveUp={() => moveWidget(index, -1)}
+              onMoveDown={() => moveWidget(index, 1)}
+              onEdit={() => setDialog({ widget })}
+              onRemove={() => removeWidget(widget.id)}
+            />
+          ))}
         </div>
       )}
+
+      {dialog && (
+        <WidgetDialog
+          kinds={kinds}
+          widget={dialog.widget}
+          hasGithub={project.github !== null}
+          onSave={upsertWidget}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   )
 }
 
-/** Bars in the right third of the chart open their tooltip to the left. */
-function tipAlign(index: number, count: number): string {
-  return index >= (2 * count) / 3 ? 'bar-tip-end' : ''
+function WidgetCard({
+  widget,
+  descriptor,
+  result,
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+  onEdit,
+  onRemove
+}: {
+  widget: AnalyticsWidget
+  /** null when the widget's source is no longer installed. */
+  descriptor: WidgetKindDescriptor | null
+  result: WidgetResult
+  isFirst: boolean
+  isLast: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onEdit: () => void
+  onRemove: () => void
+}): React.JSX.Element {
+  const title = widget.title ?? descriptor?.label ?? widget.kind
+  // Release lists want the full row; charts and stats share it.
+  const wide = result !== 'loading' && 'data' in result && result.data.shape === 'releases'
+  return (
+    <section className={`widget-card ${wide ? 'widget-wide' : ''}`}>
+      <header className="widget-header">
+        <h2>
+          {title}
+          {descriptor && <InfoTip text={descriptor.description} />}
+        </h2>
+        <div className="widget-actions">
+          <button
+            aria-label={`Move ${title} widget up`}
+            title="Move up"
+            disabled={isFirst}
+            onClick={onMoveUp}
+          >
+            ↑
+          </button>
+          <button
+            aria-label={`Move ${title} widget down`}
+            title="Move down"
+            disabled={isLast}
+            onClick={onMoveDown}
+          >
+            ↓
+          </button>
+          <button aria-label={`Edit ${title} widget`} title="Edit widget" onClick={onEdit}>
+            ✎
+          </button>
+          <button aria-label={`Remove ${title} widget`} title="Remove widget" onClick={onRemove}>
+            ✕
+          </button>
+        </div>
+      </header>
+      <WidgetBody result={result} />
+    </section>
+  )
 }
 
-/** GitHub traffic timestamps are midnight UTC; format in UTC to keep the day. */
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max - 1) + '…' : text
+function toInput(widget: AnalyticsWidget): AnalyticsWidgetInput {
+  return { id: widget.id, kind: widget.kind, title: widget.title, config: widget.config }
 }

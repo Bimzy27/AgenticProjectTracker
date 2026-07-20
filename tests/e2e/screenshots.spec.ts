@@ -1,9 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 
 /**
  * Captures light/dark screenshots of the main views for visual review.
@@ -11,11 +14,61 @@ import type { ElectronApplication, Page } from '@playwright/test'
  */
 const outDir = process.env.APT_SCREENSHOT_DIR
 
+const REPO_SLUG = 'branden/greeting-service'
+const FAKE_TOKEN = 'apt-shot-fake-github-token'
+
+/** Deterministic 14-day traffic series with enough variation to look real. */
+function trafficPoints(
+  kind: 'views' | 'clones'
+): Array<{ timestamp: string; count: number; uniques: number }> {
+  const counts =
+    kind === 'views'
+      ? [12, 18, 42, 25, 31, 22, 38, 27, 45, 33, 29, 51, 40, 36]
+      : [3, 5, 17, 8, 6, 9, 12, 7, 10, 14, 8, 11, 16, 9]
+  return counts.map((count, i) => ({
+    timestamp: `2026-07-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+    count,
+    uniques: Math.max(1, Math.round(count / 4))
+  }))
+}
+
+/** GitHub list-releases payload: a full release and a bare early one. */
+const RELEASES = [
+  {
+    tag_name: 'v1.2.0',
+    name: 'Friendlier greetings',
+    published_at: '2026-07-12T00:00:00Z',
+    body: 'Highlights:\n- greet() now capitalizes names\n- punctuation polish across the board',
+    html_url: `https://github.com/${REPO_SLUG}/releases/tag/v1.2.0`,
+    assets: [
+      { name: 'greeting-service-setup-1.2.0.exe', download_count: 412, size: 52_428_800 },
+      { name: 'greeting-service-1.2.0.zip', download_count: 25, size: 204_800 }
+    ]
+  },
+  {
+    tag_name: 'v1.1.0',
+    name: 'First public cut',
+    published_at: '2026-06-28T00:00:00Z',
+    body: null,
+    html_url: `https://github.com/${REPO_SLUG}/releases/tag/v1.1.0`,
+    assets: [{ name: 'greeting-service-setup-1.1.0.exe', download_count: 137, size: 51_380_224 }]
+  }
+]
+
+/** GET /repos/{owner}/{repo} counters that feed the stat-tile widget. */
+const REPO_STATS = {
+  stargazers_count: 1284,
+  forks_count: 87,
+  open_issues_count: 9,
+  subscribers_count: 42
+}
+
 let app: ElectronApplication
 let page: Page
 let userData: string
 let claudeHome: string
 let repo: string
+let githubServer: Server
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
@@ -85,6 +138,46 @@ test.beforeAll(async () => {
     })
   )
 
+  // Fake GitHub API behind the APT_GITHUB_API seam so the analytics dashboard
+  // renders real-looking charts, releases, and repo stats. The token is only
+  // saved after the settings screenshot, so nothing polls before that.
+  githubServer = createServer((req, res) => {
+    if (!req.headers.authorization?.includes(FAKE_TOKEN)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ message: 'Bad credentials' }))
+      return
+    }
+    const respond = (body: unknown): void => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (req.url?.startsWith(`/repos/${REPO_SLUG}/traffic/views`)) {
+      respond({ count: 0, uniques: 0, views: trafficPoints('views') })
+      return
+    }
+    if (req.url?.startsWith(`/repos/${REPO_SLUG}/traffic/clones`)) {
+      respond({ count: 0, uniques: 0, clones: trafficPoints('clones') })
+      return
+    }
+    if (req.url?.startsWith(`/repos/${REPO_SLUG}/releases`)) {
+      respond(RELEASES)
+      return
+    }
+    if (req.url?.startsWith(`/repos/${REPO_SLUG}/actions/runs`)) {
+      respond({ total_count: 0, workflow_runs: [] })
+      return
+    }
+    // Bare repo lookup last so it never shadows the sub-resources above.
+    if (req.url?.startsWith(`/repos/${REPO_SLUG}`)) {
+      respond(REPO_STATS)
+      return
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ message: 'Not Found' }))
+  })
+  await new Promise<void>((resolve) => githubServer.listen(0, '127.0.0.1', resolve))
+  const githubApi = `http://127.0.0.1:${(githubServer.address() as AddressInfo).port}`
+
   app = await electron.launch({
     args: ['.'],
     env: {
@@ -92,7 +185,10 @@ test.beforeAll(async () => {
       APT_USER_DATA_DIR: userData,
       APT_CLAUDE_HOME: claudeHome,
       APT_TEST_PICK_DIR: repo,
-      APT_FAKE_AGENT_SCRIPT: join(userData, 'fake-agent-script.json')
+      APT_FAKE_AGENT_SCRIPT: join(userData, 'fake-agent-script.json'),
+      APT_GITHUB_API: githubApi,
+      // Hover-pinned captures must not race the physical cursor; see createWindow.
+      APT_TEST_IGNORE_OS_MOUSE: '1'
     }
   })
   page = await app.firstWindow()
@@ -100,6 +196,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app?.close()
+  await new Promise<void>((resolve) => githubServer?.close(() => resolve()))
   for (const dir of [userData, claudeHome, repo]) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -111,10 +208,15 @@ async function shoot(name: string): Promise<void> {
   }
 }
 
+function widget(title: string): Locator {
+  return page.locator('.widget-card').filter({ has: page.getByRole('heading', { name: title }) })
+}
+
 test('captures all main views in both themes', async () => {
   await page.getByRole('button', { name: '+ Add project' }).click()
   await page.getByRole('button', { name: 'Choose directory…' }).click()
   await page.getByPlaceholder('Project name').fill('Greeting Service')
+  await page.getByPlaceholder('owner/repo (optional)').fill(REPO_SLUG)
   await page.getByPlaceholder('comma, separated, tags').fill('demo, backend')
   await page.getByRole('button', { name: 'Add project', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Greeting Service' })).toBeVisible()
@@ -172,4 +274,53 @@ test('captures the delegation views in both themes', async () => {
   await page.getByRole('button', { name: '⌂ Dashboard' }).click()
   await expect(page.getByText(/⚑ 1 in review/)).toBeVisible()
   await shoot('dashboard-delegation')
+})
+
+test('captures the analytics dashboard in both themes', async () => {
+  // The GitHub-backed widgets need a token; saving it here keeps the earlier
+  // settings screenshot on the unconfigured state.
+  await page.getByRole('button', { name: '⚙ Settings' }).click()
+  await page.getByPlaceholder(/ghp_/).fill(FAKE_TOKEN)
+  await page.getByRole('button', { name: 'Save token' }).click()
+  await expect(page.getByText('Token saved to the OS credential vault.')).toBeVisible()
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Greeting Service' }).click()
+  await page.locator('.tab-bar').getByRole('button', { name: 'Analytics', exact: true }).click()
+
+  // Default layout: views and clones charts plus the releases list, with a
+  // hover tooltip pinned open so its theming is captured too.
+  await expect(page.locator('.widget-card')).toHaveCount(3)
+  await expect(widget('GitHub views').locator('.bar')).toHaveCount(14)
+  await expect(page.locator('.release-card').first()).toBeVisible()
+  await widget('GitHub views').locator('.bar-slot').nth(2).hover()
+  await expect(widget('GitHub views').locator('.bar-tip').nth(2)).toBeVisible()
+  await shoot('analytics')
+
+  // The add-widget dialog, staged with the JSON metric source because its
+  // schema renders the richest form: text fields, help lines, and a secret.
+  await page.getByRole('button', { name: '+ Add widget' }).click()
+  await page.getByLabel('Widget source').selectOption('json-metric')
+  await page.getByLabel('Widget title').fill('Domain views')
+  await page.getByLabel('Endpoint URL').fill('https://api.example.com/metrics/domain-views')
+  await page.getByLabel('Value path').fill('data.visitors')
+  await page.getByLabel('Unit').fill('views')
+  await page.getByLabel('Bearer token').fill('fake-bearer-token')
+  // Filling scrolls the modal to its last field; show the header instead.
+  await page.locator('.modal').evaluate((el) => el.scrollTo(0, 0))
+  await shoot('analytics-widget-dialog')
+
+  // Customized layout: add the repo-stats widget and move it to the top so
+  // the stat tiles are captured above the fold. Switching source keeps the
+  // (source-agnostic) title, so clear it to fall back to the source name.
+  await page.getByLabel('Widget source').selectOption('github-repo-stats')
+  await page.getByLabel('Widget title').fill('')
+  await page.getByRole('button', { name: 'Add widget', exact: true }).click()
+  const stats = widget('GitHub repo stats')
+  await expect(stats.locator('.stat-tile')).toHaveCount(4)
+  const headings = page.locator('.widget-card h2')
+  for (const position of [2, 1, 0]) {
+    await stats.getByRole('button', { name: 'Move GitHub repo stats widget up' }).click()
+    await expect(headings.nth(position)).toContainText('GitHub repo stats')
+  }
+  await shoot('analytics-custom')
 })

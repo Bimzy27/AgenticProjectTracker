@@ -812,7 +812,87 @@ tr.line-del,
 .analytics-tab {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+}
+.widget-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.widget-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.widget-card.widget-wide {
+  grid-column: 1 / -1;
+}
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.widget-header h2 {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 15px;
+  margin: 0;
+}
+.widget-actions {
+  display: flex;
+  gap: 4px;
+}
+.widget-actions button {
+  padding: 2px 7px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* Nested release cards sit on the widget panel, not on their own panel. */
+.widget-card .release-card {
+  background: var(--bg);
+}
+.widget-card .release-card:last-child {
+  margin-bottom: 0;
+}
+/* Stat tiles: headline numbers in text ink; the value is the message. */
+.stat-tiles {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.stat-tile {
+  /* Basis sized so a narrow card wraps to a clean 2x2, not 3+1. */
+  flex: 1 1 110px;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+}
+.stat-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.field-help {
+  font-size: 12px;
 }
 .release-card {
   background: var(--bg-panel);
@@ -891,18 +971,14 @@ tr.line-del,
   gap: 6px;
 }
 
-.traffic-charts {
+/* The chart is a widget-card body, so it carries no panel chrome of its own. */
+.timeseries-chart {
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
 }
-.traffic-chart {
-  flex: 1;
-  min-width: 280px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+.timeseries-total {
+  font-size: 12.5px;
 }
 .bars {
   display: flex;
@@ -1051,6 +1127,10 @@ label.form-row {
   padding: 20px;
   width: 480px;
   max-width: 90vw;
+  /* Tall dialogs (e.g. widget config forms) scroll instead of pushing their
+     action buttons off screen. */
+  max-height: 85vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;

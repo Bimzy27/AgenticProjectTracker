@@ -128,7 +128,7 @@ export function ProjectView({
       )}
       {tab === 'pipelines' && <PipelinesTab project={project} />}
       {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
-      {tab === 'analytics' && <AnalyticsTab project={project} />}
+      {tab === 'analytics' && <AnalyticsTab key={project.id} project={project} />}
       {editingLinks && <ProjectLinksDialog project={project} onClose={() => setEditingLinks(false)} />}
     </div>
   )

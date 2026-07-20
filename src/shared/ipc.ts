@@ -6,6 +6,8 @@ import type {
   AboutInfo,
   ActiveTasksGroup,
   AddProjectInput,
+  AnalyticsWidget,
+  AnalyticsWidgetInput,
   DirectoryInspection,
   EditorLaunchResult,
   GithubAuthState,
@@ -16,7 +18,6 @@ import type {
   ProjectStatusSummary,
   RateLimitState,
   RefDiff,
-  ReleaseInfo,
   ReleasePreview,
   RepoRefs,
   RunRecord,
@@ -27,8 +28,9 @@ import type {
   TaskInput,
   TaskPatch,
   ThemePreference,
-  TrafficMetrics,
   TranscriptItem,
+  WidgetData,
+  WidgetKindDescriptor,
   WorkflowRun,
   WorkingTreeDiff
 } from './domain'
@@ -136,9 +138,27 @@ export interface TrackerApi {
   getPipelineRuns(projectId: string): Promise<WorkflowRun[]>
   getRateLimit(): Promise<RateLimitState>
 
-  // Release analytics
-  getReleases(projectId: string): Promise<ReleaseInfo[]>
-  getTraffic(projectId: string): Promise<TrafficMetrics>
+  // Analytics widgets
+  /** All widget sources the analytics dashboard can host, for the add-widget picker. */
+  listWidgetKinds(): Promise<WidgetKindDescriptor[]>
+  /**
+   * The project's dashboard layout. Projects that were never customized get a
+   * default layout (the GitHub traffic and releases widgets when a repo is
+   * linked, empty otherwise).
+   */
+  getAnalyticsWidgets(projectId: string): Promise<AnalyticsWidget[]>
+  /**
+   * Replace the project's dashboard (full-list semantics, like links).
+   * Rejects on unknown kinds or missing required config; secret values are
+   * stored encrypted and echoed back only as AnalyticsWidget.secretsSet keys.
+   */
+  setAnalyticsWidgets(projectId: string, widgets: AnalyticsWidgetInput[]): Promise<AnalyticsWidget[]>
+  /**
+   * Resolve one widget's current data. Expected gaps (missing token, no repo
+   * access) come back in-band as the 'unavailable' shape; unexpected source
+   * failures reject and the UI shows them on the widget card.
+   */
+  getWidgetData(projectId: string, widgetId: string): Promise<WidgetData>
 
   // Settings / GitHub auth
   getGithubAuthState(): Promise<GithubAuthState>
