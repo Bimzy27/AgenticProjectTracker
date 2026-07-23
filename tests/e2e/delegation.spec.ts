@@ -20,8 +20,15 @@ function statusBlock(state: string, note: string, extra = ''): string {
   return `\`\`\`apt-status\n{ "state": "${state}", "note": "${note}"${extra} }\n\`\`\``
 }
 
-/** The fake agent (APT_FAKE_AGENT_SCRIPT seam) replays these turns, one per user message. */
-function scriptAgent(...turns: Array<string | { text: string; files?: string[] }>): void {
+/**
+ * The fake agent (APT_FAKE_AGENT_SCRIPT seam) replays these turns, one per
+ * user message. `crashAfter` simulates the session dying mid-run: the fake
+ * agent delivers the turn's text as normal, then the stream throws instead
+ * of waiting for the next message.
+ */
+function scriptAgent(
+  ...turns: Array<string | { text: string; files?: string[]; crashAfter?: string }>
+): void {
   writeFileSync(scriptPath, JSON.stringify({ turns }))
 }
 
@@ -528,4 +535,89 @@ test('the backlog and the archive can be filtered and sorted', async () => {
   await expect(titles).toHaveText(['Loop step two', 'Loop step one'])
   await filter.fill('')
   await page.locator('.task-list').getByRole('checkbox').uncheck()
+})
+
+test('pausing a blocked task frees its project queue, and requeuing resumes the same conversation', async () => {
+  // Two turns: the task starts working, then (once resumed after being
+  // requeued) reports it is unblocked and done.
+  scriptAgent(
+    statusBlock('working', 'digging into the upstream dependency'),
+    statusBlock('complete', 'Unblocked and finished', ', "gatePassed": true, "gateSummary": "patrol green"')
+  )
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Blocked on upstream')
+  await page.getByPlaceholder(/What should the agent build/).fill('Wait on an upstream dependency update')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.getByText('digging into the upstream dependency').first()).toBeVisible()
+
+  // A second, unrelated task queues behind it in the same project - this is
+  // the soft lock: nothing else in the project can run while the blocked task
+  // holds the project's one run slot.
+  scriptAgent(
+    statusBlock('complete', 'Finished unrelated work', ', "gatePassed": true, "gateSummary": "patrol green"')
+  )
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Unrelated work')
+  await page.getByPlaceholder(/What should the agent build/).fill('Do something else entirely')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.locator('.task-row', { hasText: 'Unrelated work' }).getByText('queued')).toBeVisible()
+
+  // Pausing the blocked task frees the project: the queued task starts and
+  // (per its own single scripted turn) runs all the way to review on its own.
+  await page.locator('.task-row').getByText('Blocked on upstream').click()
+  await page.getByRole('button', { name: '⏸ Pause' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-paused')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Paused' })).toBeVisible()
+  await expect(page.locator('.task-row', { hasText: 'Unrelated work' }).getByText('review')).toBeVisible()
+
+  // Requeuing resumes the same conversation (no fresh session, no fresh
+  // briefing) rather than starting the task over.
+  await page.getByRole('button', { name: '▶ Requeue' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-review')).toBeVisible()
+  // This text only exists in the *original* two-turn script captured when the
+  // task's session first started; a fresh restart would have re-read the
+  // script file as it is now (the single-turn "Unrelated work" script), so
+  // seeing it proves the requeue reattached to the same session instead.
+  await expect(page.getByText('Unblocked and finished').first()).toBeVisible()
+  await page.getByRole('button', { name: '✓ Accept' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
+})
+
+test('a session that dies mid-run can be resumed to completion', async () => {
+  // The first turn reports progress, then the fake session crashes (as if the
+  // CLI process died) instead of waiting for another message.
+  scriptAgent({ text: statusBlock('working', 'reticulating splines'), crashAfter: 'CLI crashed' })
+
+  await page.locator('.sidebar').getByRole('button', { name: 'Delegation Demo' }).click()
+  await page.getByRole('button', { name: '+ New task' }).click()
+  await page.getByPlaceholder('Task title').fill('Flaky session')
+  await page.getByPlaceholder(/What should the agent build/).fill('Do work that outlives the session')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Delegate to agent' }).click()
+  await expect(page.getByText('reticulating splines').first()).toBeVisible()
+
+  // The session dies unexpectedly: the run is interrupted (not failed) and
+  // offers to resume rather than losing the conversation.
+  await expect(page.locator('.task-row').getByText('needs input')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Run interrupted' })).toBeVisible()
+  await expect(page.getByText('The session ended with an error: CLI crashed')).toBeVisible()
+
+  // Resuming starts a fresh session attached to the same conversation; script
+  // its next turn as the completion so the resumed run reaches review.
+  scriptAgent(
+    statusBlock(
+      'complete',
+      'Picked back up and finished',
+      ', "gatePassed": true, "gateSummary": "patrol green: typecheck, lint, tests"'
+    )
+  )
+  await page.getByRole('button', { name: 'Resume run' }).click()
+  await expect(page.getByRole('heading', { name: 'Ready for review' })).toBeVisible()
+  await expect(page.getByText('Picked back up and finished').first()).toBeVisible()
+  await page.getByRole('button', { name: '✓ Accept' }).click()
+  await expect(page.locator('.task-detail-header .badge.task-done')).toBeVisible()
 })

@@ -2,8 +2,14 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryFn } from './SessionService'
 
-/** One scripted turn: plain text, or text plus files the turn "edits" via Edit tool calls. */
-type FakeTurn = string | { text: string; files?: string[] }
+/**
+ * One scripted turn: plain text, or text plus files the turn "edits" via Edit
+ * tool calls. `crashAfter` simulates a session that dies mid-run (the CLI
+ * process crashing, losing its connection, etc.): the turn's assistant text
+ * and result are delivered as normal, then the stream throws instead of
+ * waiting for the next message, so the run loop sees an unexpected close.
+ */
+type FakeTurn = string | { text: string; files?: string[]; crashAfter?: string }
 
 interface FakeScript {
   /** Scripted assistant responses; each user message consumes the next turn. */
@@ -39,7 +45,7 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
       for await (const userMessage of args.prompt) {
         void userMessage
         const scripted = script.turns[turn] ?? FALLBACK_TURN
-        const { text, files = [] } = typeof scripted === 'string' ? { text: scripted } : scripted
+        const { text, files = [], crashAfter } = typeof scripted === 'string' ? { text: scripted } : scripted
         turn++
         // Yield to the event loop so transcript events interleave like a real stream.
         await new Promise((resolve) => setTimeout(resolve, 25))
@@ -63,6 +69,7 @@ export function createFakeAgentQuery(scriptPath: string): QueryFn {
           session_id: sessionId,
           usage: { input_tokens: 100, output_tokens: 25 }
         }
+        if (crashAfter) throw new Error(crashAfter)
       }
     }
 
