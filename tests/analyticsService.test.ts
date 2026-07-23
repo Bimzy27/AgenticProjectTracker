@@ -22,6 +22,7 @@ function project(github: { owner: string; repo: string } | null): Project {
     path: 'C:/demo',
     tags: [],
     github,
+    vercel: null,
     links: [],
     looping: false,
     agentTaskCreation: false,

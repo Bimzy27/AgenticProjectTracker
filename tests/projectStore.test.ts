@@ -119,6 +119,55 @@ describe('ProjectStore', () => {
     expect(reloaded.getOrThrow(project.id).links).toEqual([])
   })
 
+  it('starts projects with no linked Vercel project', () => {
+    expect(store.add(input()).vercel).toBeNull()
+  })
+
+  it('links a Vercel project via patch, trimming ids and dropping a blank team id', () => {
+    const project = store.add(input())
+    const updated = store.update(project.id, {
+      vercel: { projectId: ' prj_demo ', teamId: '  ' }
+    })
+    expect(updated.vercel).toEqual({ projectId: 'prj_demo', teamId: null })
+  })
+
+  it('keeps a trimmed team id when one is given', () => {
+    const project = store.add(input())
+    const updated = store.update(project.id, { vercel: { projectId: 'prj_demo', teamId: ' team_x ' } })
+    expect(updated.vercel).toEqual({ projectId: 'prj_demo', teamId: 'team_x' })
+  })
+
+  it('rejects a Vercel link without a project id', () => {
+    const project = store.add(input())
+    expect(() => store.update(project.id, { vercel: { projectId: '  ', teamId: null } })).toThrow(
+      /project ID is required/
+    )
+    expect(store.getOrThrow(project.id).vercel).toBeNull()
+  })
+
+  it('unlinks a Vercel project with null', () => {
+    const project = store.add(input())
+    store.update(project.id, { vercel: { projectId: 'prj_demo', teamId: null } })
+    expect(store.update(project.id, { vercel: null }).vercel).toBeNull()
+  })
+
+  it('persists the Vercel link across instances', () => {
+    const project = store.add(input())
+    store.update(project.id, { vercel: { projectId: 'prj_demo', teamId: 'team_x' } })
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).vercel).toEqual({ projectId: 'prj_demo', teamId: 'team_x' })
+  })
+
+  it('defaults the Vercel link for registry files written before it existed', () => {
+    const project = store.add(input())
+    const registryPath = join(dir, 'projects.json')
+    const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
+    delete raw.projects[0].vercel
+    writeFileSync(registryPath, JSON.stringify(raw))
+    const reloaded = new ProjectStore(dir)
+    expect(reloaded.getOrThrow(project.id).vercel).toBeNull()
+  })
+
   it('starts projects with looping mode off', () => {
     expect(store.add(input()).looping).toBe(false)
   })

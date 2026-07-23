@@ -17,6 +17,7 @@ const project: Project = {
   path: 'C:/demo',
   tags: [],
   github: { owner: 'me', repo: 'demo' },
+  vercel: null,
   links: [],
   looping: false,
   agentTaskCreation: false,

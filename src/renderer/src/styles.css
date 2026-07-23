@@ -395,6 +395,9 @@ select:focus {
   color: var(--warning);
   font-weight: 600;
 }
+.build-stability {
+  margin: 0;
+}
 .card-tags {
   display: flex;
   gap: 6px;
@@ -807,6 +810,29 @@ tr.line-del,
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
+.runs-table-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  white-space: nowrap;
+}
+.log-lines {
+  background: var(--bg-inset, #111);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 50vh;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.log-line.log-stderr {
+  color: var(--failure);
+}
+.log-line.log-system {
+  color: var(--text-muted);
+}
 
 /* Analytics */
 .analytics-tab {
@@ -1139,6 +1165,9 @@ label.form-row {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.modal.modal-wide {
+  width: 720px;
 }
 
 /* Sidebar: Claude usage bars (under the About button) */

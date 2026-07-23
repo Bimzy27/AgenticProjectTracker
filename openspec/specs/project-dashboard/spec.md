@@ -28,14 +28,14 @@ The system SHALL allow the user to set a display name and optional category tags
 ### Requirement: Dashboard lists all tracked projects with status summary
 
 The system SHALL display all registered projects in a single dashboard view.
-For each project the dashboard SHALL show: display name, current branch, dirty-state indicator (uncommitted changes), count of agent sessions with their states, latest pipeline status, and a delegation summary (counts of queued, running, and needs-input tasks with the active run's current progress note when present).
+For each project the dashboard SHALL show: display name, current branch, dirty-state indicator (uncommitted changes), count of agent sessions with their states, latest combined pipeline status with its rolling failure rate (see pipeline-monitoring), and a delegation summary (counts of queued, running, and needs-input tasks with the active run's current progress note when present).
 The dashboard SHALL show a global attention indicator aggregating pending inbox items across all projects.
 The dashboard SHALL support grouping or filtering projects by category tag.
 
 #### Scenario: Viewing the dashboard
 
 - **WHEN** the user opens the app with registered projects
-- **THEN** every registered project is listed with branch, dirty state, session count, pipeline status, and its delegation summary
+- **THEN** every registered project is listed with branch, dirty state, session count, pipeline status, its rolling failure rate when available, and its delegation summary
 
 #### Scenario: Filtering by category
 

@@ -211,9 +211,11 @@ test.beforeAll(async () => {
   await expect(page.getByRole('heading', { name: 'Analytics Demo' })).toBeVisible()
 
   await page.getByRole('button', { name: '⚙ Settings' }).click()
-  await page.getByPlaceholder(/ghp_/).fill(FAKE_TOKEN)
-  await page.getByRole('button', { name: 'Save token' }).click()
-  await expect(page.getByText('Token saved to the OS credential vault.')).toBeVisible()
+  // Settings has one "Save token" button per provider section (GitHub, Vercel, …), so scope to GitHub's.
+  const githubSection = page.locator('.settings-section').filter({ hasText: 'GitHub access' })
+  await githubSection.getByPlaceholder(/ghp_/).fill(FAKE_TOKEN)
+  await githubSection.getByRole('button', { name: 'Save token' }).click()
+  await expect(githubSection.getByText('Token saved to the OS credential vault.')).toBeVisible()
 
   await page.locator('.sidebar').getByRole('button', { name: 'Analytics Demo' }).click()
   await page.getByRole('button', { name: 'Analytics', exact: true }).click()

@@ -12,6 +12,9 @@ import type {
   EditorLaunchResult,
   GithubAuthState,
   InboxItem,
+  PipelineKind,
+  PipelineLogs,
+  PipelineRun,
   PipelineStatusSummary,
   Project,
   ProjectPatch,
@@ -29,9 +32,9 @@ import type {
   TaskPatch,
   ThemePreference,
   TranscriptItem,
+  VercelAuthState,
   WidgetData,
   WidgetKindDescriptor,
-  WorkflowRun,
   WorkingTreeDiff
 } from './domain'
 
@@ -108,6 +111,16 @@ export interface TrackerApi {
   acceptTask(projectId: string, taskId: string): Promise<void>
   /** Re-queue a reviewed task with feedback for the next briefing. */
   sendBackTask(projectId: string, taskId: string, feedback: string): Promise<void>
+  /**
+   * Manually park a queued, running, or needs-input task: interrupts a live
+   * session but keeps the run resumable, and immediately frees the task's
+   * project so other queued work can start. The escape hatch for a task
+   * blocked on something outside the agent's control, e.g. an upstream
+   * review or a dependency update from a third party.
+   */
+  pauseTask(projectId: string, taskId: string): Promise<void>
+  /** Return a paused task to the queue; a parked run resumes where it left off once a slot is free. */
+  requeueTask(projectId: string, taskId: string): Promise<TaskDefinition>
 
   // Release publishing
   /**
@@ -135,7 +148,10 @@ export interface TrackerApi {
   listActiveTasks(): Promise<ActiveTasksGroup[]>
 
   // Pipelines
-  getPipelineRuns(projectId: string): Promise<WorkflowRun[]>
+  /** All runs across every pipeline provider configured for the project (GitHub Actions, Vercel, …), newest first. */
+  getPipelineRuns(projectId: string): Promise<PipelineRun[]>
+  /** Fetch build/run logs for one pipeline run; rejects when its provider does not support logs or is not configured. */
+  getPipelineLogs(projectId: string, pipeline: PipelineKind, runId: string): Promise<PipelineLogs>
   getRateLimit(): Promise<RateLimitState>
 
   // Analytics widgets
@@ -167,6 +183,12 @@ export interface TrackerApi {
   /** Returns true when a token was found and imported from the gh CLI. */
   importGhCliToken(): Promise<boolean>
 
+  // Settings / Vercel auth
+  /** Vercel access token used to poll deployment pipelines and fetch their logs. */
+  getVercelAuthState(): Promise<VercelAuthState>
+  setVercelToken(token: string): Promise<void>
+  clearVercelToken(): Promise<void>
+
   // Settings / appearance
   /** The persisted UI theme preference; 'system' follows the OS. */
   getThemePreference(): Promise<ThemePreference>
@@ -192,7 +214,7 @@ export interface TrackerEvents {
   'diff-changed': { projectId: string }
   'session-updated': SessionSummary
   'transcript-appended': { projectId: string; sessionId: string; items: TranscriptItem[] }
-  'pipeline-updated': { projectId: string; summary: PipelineStatusSummary; runs: WorkflowRun[] }
+  'pipeline-updated': { projectId: string; summary: PipelineStatusSummary; runs: PipelineRun[] }
   'rate-limit-changed': RateLimitState
   'tasks-changed': { projectId: string; tasks: TaskDefinition[] }
   'run-updated': RunRecord

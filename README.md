@@ -37,7 +37,9 @@ npm run typecheck && npm run lint && npm run format:check && npm test
 2. For GitHub features (pipeline monitoring, release analytics), open **Settings** and either paste a Personal Access Token or click **Import from gh CLI** if you are logged in with `gh`.
    Minimum scopes: `repo` (for private repos) plus Actions read; repository traffic additionally requires push access to the repo.
    The token is stored encrypted via the OS credential vault (Electron `safeStorage`), never in plain text.
-3. For agent features (delegating tasks, viewing sessions), make sure the Claude Code CLI is installed and logged in.
+3. For Vercel deployment pipelines, open **Settings** and paste a Vercel access token, then link the project to its Vercel project on the project view.
+   The token is stored encrypted the same way as the GitHub token.
+4. For agent features (delegating tasks, viewing sessions), make sure the Claude Code CLI is installed and logged in.
    Sessions started in a terminal are discovered read-only; sessions started or resumed inside the app are fully controllable.
 
 Everything is optional beyond step 1: without a token or the CLI, all local features work normally.
@@ -66,10 +68,11 @@ The installer is unsigned, so Windows SmartScreen will warn on first run; choose
   Individual tasks can opt into auto-approve, accepting a clean completion without the review step.
 - **Looping mode**: a per-project toggle that keeps agents working through the backlog hands-free - completed runs and the delegated runs' permission requests are approved automatically and the next draft task is delegated on its own, while questions and failures still come to you.
 - **Attention inbox**: one cross-project queue for everything that needs you - agent questions, tool permission requests, exhausted retries, and completed runs awaiting review - all answerable in place.
-- **Dashboard**: every tracked project at a glance - branch, dirty state, delegated task states with live progress, agent sessions needing attention, pipeline status, filterable by category.
+- **Dashboard**: every tracked project at a glance - branch, dirty state, delegated task states with live progress, agent sessions needing attention, pipeline status with a rolling build-failure rate, filterable by category.
 - **Agent sessions**: discovers Claude CLI sessions per project, shows transcripts live, lets you respond to waiting sessions, and toggles permission modes (plan / accept edits / auto) on sessions managed by the app.
 - **Diff viewer**: working tree (staged/unstaged/untracked) and ref-to-ref diffs, grouped by directory, syntax highlighted, unified or side-by-side.
-- **Pipeline monitoring**: polls GitHub Actions with ETag conditional requests and raises desktop notifications on failures; click-through opens the run detail.
+- **Pipeline monitoring**: a pluggable set of pipeline providers (GitHub Actions workflow runs, Vercel deployments) polled per project - ETag conditional requests where supported, per-provider backoff, desktop notifications on failures with click-through to the run, in-app build/deploy log inspection, and a rolling failure-rate indicator on the dashboard for at-a-glance build stability.
+  Adding another provider needs no changes to the data model or UI.
 - **Analytics dashboard**: a per-project, customizable dashboard of pluggable widgets.
   GitHub releases (per-asset download counts), repository traffic (views/clones), and repo stats ship built in, and a generic JSON metric widget charts any third-party JSON endpoint (e.g. Vercel-style analytics APIs); widget bearer tokens are stored encrypted via the OS credential vault.
 

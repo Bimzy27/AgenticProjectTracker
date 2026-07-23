@@ -2,10 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Project, WorkflowRun } from '../src/shared/domain'
+import type { PipelineRun, Project } from '../src/shared/domain'
 import type { ConditionalResponse } from '../src/main/services/GithubClient'
-import { PipelineService, mapRun, summarize } from '../src/main/services/PipelineService'
+import { GithubNotConfiguredError } from '../src/main/services/GithubClient'
+import { GithubActionsPipelineProvider } from '../src/main/services/GithubActionsPipelineProvider'
+import { PipelineService, summarize } from '../src/main/services/PipelineService'
 import type { PipelineEventSink } from '../src/main/services/PipelineService'
+import type { PipelinePoll, PipelineProvider } from '../src/main/services/PipelineProvider'
 import { ProjectStore } from '../src/main/services/ProjectStore'
 
 function ghRun(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -25,24 +28,18 @@ function ghRun(overrides: Partial<Record<string, unknown>> = {}): Record<string,
 }
 
 interface FakeGithub {
-  isConfigured(): boolean
   conditionalGet: ReturnType<typeof vi.fn>
-  getRateLimit(): unknown
 }
 
 function fakeGithub(): FakeGithub {
-  return {
-    isConfigured: () => true,
-    conditionalGet: vi.fn(),
-    getRateLimit: () => ({ limit: null, remaining: null, resetAt: null, low: false })
-  }
+  return { conditionalGet: vi.fn() }
 }
 
 function response(runs: Record<string, unknown>[], etag = 'etag-1'): ConditionalResponse<unknown> {
   return { data: { workflow_runs: runs }, etag, notModified: false }
 }
 
-describe('PipelineService', () => {
+describe('PipelineService with a GitHub Actions provider', () => {
   let dir: string
   let store: ProjectStore
   let project: Project
@@ -61,7 +58,8 @@ describe('PipelineService', () => {
     })
     github = fakeGithub()
     sink = { pipelineUpdated: vi.fn(), notifyRun: vi.fn() }
-    service = new PipelineService(github as never, store, sink as unknown as PipelineEventSink, 60_000)
+    const provider = new GithubActionsPipelineProvider(github as never)
+    service = new PipelineService([provider], store, sink as unknown as PipelineEventSink, 60_000)
   })
 
   afterEach(() => {
@@ -90,7 +88,7 @@ describe('PipelineService', () => {
     expect(sink.pipelineUpdated).toHaveBeenCalledOnce()
   })
 
-  it('respects the per-repo poll interval', async () => {
+  it('respects the per-provider poll interval', async () => {
     github.conditionalGet.mockResolvedValue(response([ghRun()]))
     await service.tick(1_000)
     await service.tick(2_000)
@@ -178,32 +176,156 @@ describe('PipelineService', () => {
     expect(service.getSummary(project.id)?.error).toBeNull()
   })
 
-  it('does nothing without a token or without a linked repo', async () => {
-    github.isConfigured = () => false
+  it('skips silently while no GitHub token is configured yet, without backoff or an error', async () => {
+    github.conditionalGet.mockRejectedValue(new GithubNotConfiguredError())
+    await service.tick(1_000)
+    expect(sink.pipelineUpdated).not.toHaveBeenCalled()
+    expect(service.getRuns(project.id)).toEqual([])
+    // Retried immediately on the very next tick (no backoff for "not configured yet").
+    await service.tick(1_001)
+    expect(github.conditionalGet).toHaveBeenCalledTimes(2)
+  })
+
+  it('does nothing for a project without a linked repo', async () => {
+    store.update(project.id, { github: null })
     await service.tick(1_000)
     expect(github.conditionalGet).not.toHaveBeenCalled()
   })
 })
 
-describe('mapRun and summarize', () => {
-  it('maps GitHub status/conclusion pairs to RunStatus', () => {
-    expect(mapRun(ghRun() as never).status).toBe('success')
-    expect(mapRun(ghRun({ conclusion: 'failure' }) as never).status).toBe('failure')
-    expect(mapRun(ghRun({ conclusion: 'timed_out' }) as never).status).toBe('failure')
-    expect(mapRun(ghRun({ status: 'in_progress', conclusion: null }) as never).status).toBe('in_progress')
-    expect(mapRun(ghRun({ status: 'waiting', conclusion: null }) as never).status).toBe('action_required')
+describe('PipelineService merging multiple providers', () => {
+  let dir: string
+  let store: ProjectStore
+  let project: Project
+  let sink: { pipelineUpdated: ReturnType<typeof vi.fn>; notifyRun: ReturnType<typeof vi.fn> }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'apt-pipe-multi-'))
+    store = new ProjectStore(dir)
+    project = store.add({ path: 'C:\\repos\\demo', name: 'Demo', tags: [], github: null })
+    sink = { pipelineUpdated: vi.fn(), notifyRun: vi.fn() }
   })
 
-  it('computes duration only for completed runs', () => {
-    expect(mapRun(ghRun() as never).durationSeconds).toBe(300)
-    expect(mapRun(ghRun({ status: 'in_progress', conclusion: null }) as never).durationSeconds).toBeNull()
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
   })
 
-  it('summarizes using the latest run per workflow', () => {
-    const runs: WorkflowRun[] = [
-      mapRun(ghRun({ id: 3, name: 'CI', conclusion: 'failure' }) as never),
-      mapRun(ghRun({ id: 2, name: 'CI', conclusion: 'success' }) as never),
-      mapRun(ghRun({ id: 1, name: 'Deploy', conclusion: 'success' }) as never)
+  function fakeProvider(
+    kind: 'github-actions' | 'vercel',
+    poll: () => Promise<PipelinePoll>
+  ): PipelineProvider {
+    return { kind, isConfigured: () => true, poll }
+  }
+
+  function pipelineRun(overrides: Partial<PipelineRun>): PipelineRun {
+    return {
+      id: '1',
+      pipeline: 'github-actions',
+      name: 'CI',
+      branch: 'main',
+      commitSha: 'abc',
+      commitMessage: 'msg',
+      status: 'success',
+      startedAt: '2026-07-01T00:00:00Z',
+      durationSeconds: 60,
+      url: 'https://example.com',
+      logsAvailable: false,
+      ...overrides
+    }
+  }
+
+  it('merges runs from every configured provider, newest first, into one combined summary', async () => {
+    const ghRuns = [
+      pipelineRun({
+        id: '1',
+        pipeline: 'github-actions',
+        status: 'success',
+        startedAt: '2026-07-01T00:00:00Z'
+      })
+    ]
+    const vercelRuns = [
+      pipelineRun({
+        id: 'dpl_1',
+        pipeline: 'vercel',
+        name: 'Production',
+        status: 'failure',
+        startedAt: '2026-07-02T00:00:00Z',
+        logsAvailable: true
+      })
+    ]
+    const github = fakeProvider('github-actions', async () => ({
+      runs: ghRuns,
+      etag: null,
+      notModified: false
+    }))
+    const vercel = fakeProvider('vercel', async () => ({ runs: vercelRuns, etag: null, notModified: false }))
+    const service = new PipelineService([github, vercel], store, sink as unknown as PipelineEventSink, 60_000)
+
+    await service.tick(0)
+
+    const runs = service.getRuns(project.id)
+    expect(runs.map((r) => r.pipeline)).toEqual(['vercel', 'github-actions'])
+
+    const summary = service.getSummary(project.id)!
+    expect(summary.overall).toBe('failure')
+    expect(summary.failureRatePercent).toBe(50)
+    expect(summary.failureRateSampleSize).toBe(2)
+  })
+
+  it("routes fetchLogs to the provider matching the run's pipeline kind", async () => {
+    const fetchLogs = vi.fn().mockResolvedValue({ lines: [], externalUrl: 'https://vercel.com/x' })
+    const vercel: PipelineProvider = {
+      kind: 'vercel',
+      isConfigured: () => true,
+      poll: async () => ({ runs: [], etag: null, notModified: false }),
+      fetchLogs
+    }
+    const service = new PipelineService([vercel], store, sink as unknown as PipelineEventSink, 60_000)
+    const logs = await service.fetchLogs(project.id, 'vercel', 'dpl_1')
+    expect(fetchLogs).toHaveBeenCalledWith(expect.objectContaining({ id: project.id }), 'dpl_1')
+    expect(logs.externalUrl).toBe('https://vercel.com/x')
+  })
+
+  it('rejects fetchLogs for a provider that does not support logs', async () => {
+    const github = fakeProvider('github-actions', async () => ({ runs: [], etag: null, notModified: false }))
+    const service = new PipelineService([github], store, sink as unknown as PipelineEventSink, 60_000)
+    await expect(service.fetchLogs(project.id, 'github-actions', '1')).rejects.toThrow(/does not support/)
+  })
+})
+
+describe('summarize', () => {
+  function pipelineRun(overrides: Partial<PipelineRun>): PipelineRun {
+    return {
+      id: '1',
+      pipeline: 'github-actions',
+      name: 'CI',
+      branch: 'main',
+      commitSha: 'abc',
+      commitMessage: 'msg',
+      status: 'success',
+      startedAt: '2026-07-01T00:00:00Z',
+      durationSeconds: 60,
+      url: 'https://example.com',
+      logsAvailable: false,
+      ...overrides
+    }
+  }
+
+  it('summarizes using the latest run per (pipeline, name) group', () => {
+    const runs: PipelineRun[] = [
+      pipelineRun({ id: '3', name: 'CI', status: 'failure', startedAt: '2026-07-03T00:00:00Z' }),
+      pipelineRun({ id: '2', name: 'CI', status: 'success', startedAt: '2026-07-02T00:00:00Z' }),
+      pipelineRun({ id: '1', name: 'Deploy', status: 'success', startedAt: '2026-07-01T00:00:00Z' })
+    ]
+    const summary = summarize(runs)
+    expect(summary.overall).toBe('failure')
+    expect(summary.failingRuns).toBe(1)
+  })
+
+  it('keeps GitHub Actions and Vercel groups independent even when names collide', () => {
+    const runs: PipelineRun[] = [
+      pipelineRun({ id: '1', pipeline: 'github-actions', name: 'Production', status: 'failure' }),
+      pipelineRun({ id: 'dpl_1', pipeline: 'vercel', name: 'Production', status: 'success' })
     ]
     const summary = summarize(runs)
     expect(summary.overall).toBe('failure')

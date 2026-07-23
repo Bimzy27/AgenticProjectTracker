@@ -105,6 +105,7 @@ export class ProjectService {
         running: 0,
         needsInput: 0,
         review: 0,
+        paused: 0,
         activeTaskTitle: null,
         activeProgressNote: null
       }

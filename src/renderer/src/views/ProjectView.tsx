@@ -3,6 +3,7 @@ import type { Project } from '@shared/domain'
 import { tracker } from '../tracker'
 import { InfoTip } from '../components/InfoTip'
 import { ProjectLinksDialog } from '../components/ProjectLinksDialog'
+import { ProjectVercelDialog } from '../components/ProjectVercelDialog'
 import { AnalyticsTab } from './AnalyticsTab'
 import { DiffsTab } from './DiffsTab'
 import { PipelinesTab } from './PipelinesTab'
@@ -42,6 +43,7 @@ export function ProjectView({
   onFocusSession
 }: Props): React.JSX.Element {
   const [editingLinks, setEditingLinks] = useState(false)
+  const [editingVercel, setEditingVercel] = useState(false)
   return (
     <div className="project-view">
       <header className="view-header">
@@ -70,6 +72,13 @@ export function ProjectView({
               onClick={() => setEditingLinks(true)}
             >
               {project.links.length > 0 ? '✎ Edit links' : '+ Add links'}
+            </button>
+            <button
+              className="project-links-edit"
+              title="Link a Vercel project to see its deployments on the Pipelines tab"
+              onClick={() => setEditingVercel(true)}
+            >
+              {project.vercel ? `✎ Vercel: ${project.vercel.projectId}` : '+ Link Vercel project'}
             </button>
           </div>
         </div>
@@ -130,6 +139,7 @@ export function ProjectView({
       {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
       {tab === 'analytics' && <AnalyticsTab key={project.id} project={project} />}
       {editingLinks && <ProjectLinksDialog project={project} onClose={() => setEditingLinks(false)} />}
+      {editingVercel && <ProjectVercelDialog project={project} onClose={() => setEditingVercel(false)} />}
     </div>
   )
 }

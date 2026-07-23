@@ -119,6 +119,14 @@ function ProjectCard({
       <p className="muted">
         {project.github ? `${project.github.owner}/${project.github.repo}` : 'no GitHub repo'}
       </p>
+      {status?.pipeline && status.pipeline.failureRatePercent !== null && (
+        <p
+          className={`stat build-stability ${status.pipeline.failureRatePercent > 0 ? 'warn' : ''}`}
+          title={`Failure rate over the last ${status.pipeline.failureRateSampleSize} completed pipeline runs`}
+        >
+          ⚠ {status.pipeline.failureRatePercent}% failed (last {status.pipeline.failureRateSampleSize})
+        </p>
+      )}
       <div className="card-stats">
         <span className="stat" title="Current branch">
           ⎇ {status?.branch ?? '…'}
@@ -167,6 +175,7 @@ function DelegationLine({
   if (delegation.queued > 0) parts.push(`${delegation.queued} queued`)
   if (delegation.needsInput > 0) parts.push(`${delegation.needsInput} needs input`)
   if (delegation.review > 0) parts.push(`${delegation.review} in review`)
+  if (delegation.paused > 0) parts.push(`${delegation.paused} paused`)
   if (parts.length === 0) return null
   return (
     <button

@@ -1,6 +1,7 @@
 import type {
   AddProjectInput,
   AnalyticsWidgetInput,
+  PipelineKind,
   ProjectPatch,
   SessionCurationPatch,
   SessionPermissionMode,
@@ -25,6 +26,7 @@ import type { SettingsStore } from './services/SettingsStore'
 import type { TaskService } from './services/TaskService'
 import type { TokenStore } from './services/TokenStore'
 import type { UsageService } from './services/UsageService'
+import type { VercelTokenStore } from './services/VercelTokenStore'
 
 export interface ApiDeps {
   store: ProjectStore
@@ -40,6 +42,7 @@ export interface ApiDeps {
   analytics: AnalyticsService
   github: GithubClient
   tokens: TokenStore
+  vercelTokens: VercelTokenStore
   editor: EditorService
   usage: UsageService
   settings: SettingsStore
@@ -153,6 +156,8 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     acceptTask: async (_projectId: string, taskId: string) => deps.orchestrator.accept(taskId),
     sendBackTask: async (_projectId: string, taskId: string, feedback: string) =>
       deps.orchestrator.sendBack(taskId, feedback),
+    pauseTask: async (_projectId: string, taskId: string) => deps.orchestrator.pause(taskId),
+    requeueTask: async (_projectId: string, taskId: string) => deps.orchestrator.requeue(taskId),
 
     // Release publishing
     getReleasePreview: async (projectId: string) => deps.release.getPreview(deps.store.getOrThrow(projectId)),
@@ -169,6 +174,8 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
 
     // Pipelines
     getPipelineRuns: async (projectId: string) => deps.pipelines.getRuns(projectId),
+    getPipelineLogs: async (projectId: string, pipeline: PipelineKind, runId: string) =>
+      deps.pipelines.fetchLogs(projectId, pipeline, runId),
     getRateLimit: async () => deps.github.getRateLimit(),
 
     // Analytics widgets
@@ -185,6 +192,11 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     setGithubToken: async (token: string) => deps.tokens.setToken(token),
     clearGithubToken: async () => deps.tokens.clearToken(),
     importGhCliToken: async () => deps.tokens.importFromGhCli(),
+
+    // Settings / Vercel auth
+    getVercelAuthState: async () => deps.vercelTokens.getAuthState(),
+    setVercelToken: async (token: string) => deps.vercelTokens.setToken(token),
+    clearVercelToken: async () => deps.vercelTokens.clearToken(),
 
     // Settings / appearance
     getThemePreference: async () => deps.settings.getTheme(),

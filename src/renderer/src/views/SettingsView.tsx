@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { THEME_PREFERENCES } from '@shared/domain'
-import type { GithubAuthState, ThemePreference } from '@shared/domain'
+import type { GithubAuthState, ThemePreference, VercelAuthState } from '@shared/domain'
 import { tracker } from '../tracker'
 
 const THEME_LABELS: Record<ThemePreference, string> = {
@@ -11,15 +11,23 @@ const THEME_LABELS: Record<ThemePreference, string> = {
 
 export function SettingsView(): React.JSX.Element {
   const [auth, setAuth] = useState<GithubAuthState | null>(null)
+  const [vercelAuth, setVercelAuth] = useState<VercelAuthState | null>(null)
   const [theme, setTheme] = useState<ThemePreference | null>(null)
   const [token, setToken] = useState('')
+  const [vercelToken, setVercelToken] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [vercelMessage, setVercelMessage] = useState<string | null>(null)
+  const [vercelError, setVercelError] = useState<string | null>(null)
 
   const refresh = (): void => {
     tracker.invoke('getGithubAuthState').then(setAuth).catch(console.error)
   }
+  const refreshVercel = (): void => {
+    tracker.invoke('getVercelAuthState').then(setVercelAuth).catch(console.error)
+  }
   useEffect(refresh, [])
+  useEffect(refreshVercel, [])
   useEffect(() => {
     tracker.invoke('getThemePreference').then(setTheme).catch(console.error)
   }, [])
@@ -38,6 +46,17 @@ export function SettingsView(): React.JSX.Element {
         refresh()
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  const actVercel = (fn: () => Promise<string>): void => {
+    setVercelMessage(null)
+    setVercelError(null)
+    fn()
+      .then((msg) => {
+        setVercelMessage(msg)
+        refreshVercel()
+      })
+      .catch((err) => setVercelError(err instanceof Error ? err.message : String(err)))
   }
 
   return (
@@ -129,6 +148,55 @@ export function SettingsView(): React.JSX.Element {
         </div>
         {message && <p className="success-text">{message}</p>}
         {error && <p className="error-text">{error}</p>}
+      </section>
+
+      <section className="settings-section">
+        <h2>Vercel access</h2>
+        <p className="muted">
+          An access token enables Vercel deployment pipelines: viewing recent deployments and inspecting their
+          build logs on a project's Pipelines tab. Create one under Vercel account settings; for a team
+          project, scope it to that team. The token is stored encrypted in the OS credential vault, never in
+          plain text. Link a project to a Vercel project on its own view to start polling it.
+        </p>
+        <p>Status: {vercelAuth === null ? '…' : vercelAuth.configured ? 'configured' : 'not configured'}</p>
+        <div className="form-row">
+          <input
+            type="password"
+            value={vercelToken}
+            placeholder="Vercel access token"
+            onChange={(e) => setVercelToken(e.target.value)}
+          />
+          <button
+            className="primary"
+            disabled={!vercelToken.trim()}
+            onClick={() =>
+              actVercel(async () => {
+                await tracker.invoke('setVercelToken', vercelToken)
+                setVercelToken('')
+                return 'Token saved to the OS credential vault.'
+              })
+            }
+          >
+            Save token
+          </button>
+        </div>
+        {vercelAuth?.configured && (
+          <div className="form-row">
+            <button
+              className="danger"
+              onClick={() =>
+                actVercel(async () => {
+                  await tracker.invoke('clearVercelToken')
+                  return 'Token removed.'
+                })
+              }
+            >
+              Remove token
+            </button>
+          </div>
+        )}
+        {vercelMessage && <p className="success-text">{vercelMessage}</p>}
+        {vercelError && <p className="error-text">{vercelError}</p>}
       </section>
 
       <section className="settings-section">

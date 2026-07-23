@@ -18,6 +18,14 @@ export interface ProjectLink {
   url: string
 }
 
+/** A Vercel project linked for deployment pipeline monitoring. */
+export interface VercelProjectRef {
+  /** Vercel project ID (prj_…) or name. */
+  projectId: string
+  /** Team ID or slug; required when the Vercel project belongs to a team account. */
+  teamId: string | null
+}
+
 export interface Project {
   id: string
   name: string
@@ -25,6 +33,8 @@ export interface Project {
   path: string
   tags: string[]
   github: GithubRepoRef | null
+  /** Vercel project linked for deployment pipeline monitoring, or null. */
+  vercel: VercelProjectRef | null
   /** Important links configured by the user, shown on the project view. */
   links: ProjectLink[]
   /**
@@ -59,6 +69,8 @@ export interface ProjectPatch {
   name?: string
   tags?: string[]
   github?: GithubRepoRef | null
+  /** Link or unlink the Vercel project used for deployment pipeline monitoring. */
+  vercel?: VercelProjectRef | null
   /** Replace the project's important links (full-list semantics). */
   links?: ProjectLink[]
   /** Relocate the project to a new directory. */
@@ -524,16 +536,42 @@ export interface InboxItem {
 export type RunStatus =
   'queued' | 'in_progress' | 'success' | 'failure' | 'cancelled' | 'action_required' | 'neutral' | 'unknown'
 
-export interface WorkflowRun {
-  id: number
-  workflowName: string
+/**
+ * Which pipeline source produced a run. Kept as a plain string union so the
+ * main process can register additional PipelineProvider implementations
+ * (see PipelineService) without further changes here; PIPELINE_KIND_LABELS
+ * gives known kinds a display label.
+ */
+export type PipelineKind = 'github-actions' | 'vercel'
+
+/** Display label per pipeline kind, used by the Pipelines tab. */
+export const PIPELINE_KIND_LABELS: Record<PipelineKind, string> = {
+  'github-actions': 'GitHub Actions',
+  vercel: 'Vercel'
+}
+
+/**
+ * One run from any pipeline provider (a GitHub Actions workflow run, a
+ * Vercel deployment, or a future provider), normalized to a common shape so
+ * the UI and the rolling failure-rate calculation work the same way
+ * regardless of source.
+ */
+export interface PipelineRun {
+  /** Unique within its `pipeline` kind; ids from different kinds may collide, so pair with `pipeline`. */
+  id: string
+  pipeline: PipelineKind
+  /** Workflow name (GitHub Actions) or deployment target, e.g. "Production" (Vercel). */
+  name: string
   branch: string
   commitSha: string
   commitMessage: string
   status: RunStatus
   startedAt: string | null
   durationSeconds: number | null
+  /** Link to view the run/deployment on the provider's site. */
   url: string
+  /** True when getPipelineLogs can fetch build/run logs for this run. */
+  logsAvailable: boolean
 }
 
 export interface PipelineStatusSummary {
@@ -542,6 +580,30 @@ export interface PipelineStatusSummary {
   updatedAt: string | null
   /** Message from the most recent failed poll; null while polling succeeds. */
   error?: string | null
+  /**
+   * Rolling failure rate over the most recently completed runs across every
+   * pipeline configured for the project (see computeFailureRate in the main
+   * process), shown on the dashboard as an at-a-glance stability indicator.
+   * Null until at least one completed (success or failure) run exists.
+   */
+  failureRatePercent: number | null
+  /** How many completed runs `failureRatePercent` was computed from. */
+  failureRateSampleSize: number
+}
+
+/** One log line from a pipeline run/deployment, normalized across providers. */
+export interface PipelineLogLine {
+  /** ISO timestamp, when the provider reports one. */
+  at: string | null
+  stream: 'stdout' | 'stderr' | 'system'
+  text: string
+}
+
+/** Build/run logs for one pipeline run, fetched on demand for inspection. */
+export interface PipelineLogs {
+  lines: PipelineLogLine[]
+  /** Link to view the full logs on the provider's site. */
+  externalUrl: string
 }
 
 export interface RateLimitState {
@@ -555,6 +617,11 @@ export interface RateLimitState {
 export interface GithubAuthState {
   configured: boolean
   source: 'vault' | 'gh-cli' | null
+}
+
+/** Vercel access token configuration state; storage mirrors GithubAuthState but has no CLI import. */
+export interface VercelAuthState {
+  configured: boolean
 }
 
 // ---------- App settings ----------

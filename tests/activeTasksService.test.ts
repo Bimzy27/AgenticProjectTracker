@@ -11,6 +11,7 @@ function project(id: string, name: string): Project {
     path: `C:/repos/${id}`,
     tags: [],
     github: null,
+    vercel: null,
     links: [],
     looping: false,
     agentTaskCreation: false,

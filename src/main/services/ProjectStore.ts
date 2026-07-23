@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AddProjectInput, Project, ProjectLink, ProjectPatch } from '@shared/domain'
+import type { AddProjectInput, Project, ProjectLink, ProjectPatch, VercelProjectRef } from '@shared/domain'
 
 interface RegistryFile {
   version: 1
@@ -48,6 +48,7 @@ export class ProjectStore {
       path: input.path,
       tags: normalizeTags(input.tags),
       github: input.github,
+      vercel: null,
       links: [],
       looping: false,
       agentTaskCreation: false,
@@ -64,9 +65,11 @@ export class ProjectStore {
     const name = patch.name?.trim()
     if (patch.name !== undefined && !name) throw new Error('Project name is required')
     const links = patch.links !== undefined ? normalizeLinks(patch.links) : undefined
+    const vercel = patch.vercel !== undefined ? normalizeVercel(patch.vercel) : undefined
     if (name !== undefined) project.name = name
     if (patch.tags !== undefined) project.tags = normalizeTags(patch.tags)
     if (patch.github !== undefined) project.github = patch.github
+    if (vercel !== undefined) project.vercel = vercel
     if (links !== undefined) project.links = links
     if (patch.path !== undefined) project.path = patch.path
     if (patch.looping !== undefined) project.looping = patch.looping
@@ -98,6 +101,7 @@ export class ProjectStore {
     this.projects = projects.map((p) => ({
       ...p,
       links: Array.isArray(p.links) ? p.links : [],
+      vercel: p.vercel ?? null,
       looping: p.looping ?? false,
       agentTaskCreation: p.agentTaskCreation ?? false
     }))
@@ -129,6 +133,15 @@ function normalizeLinks(links: ProjectLink[]): ProjectLink[] {
     if (!isHttpUrl(url)) throw new Error(`Link URL must be an absolute http(s) URL: "${url}"`)
     return { label, url }
   })
+}
+
+/** Validates a Vercel project link: a project ID/name is required; a blank team id normalizes to null. */
+function normalizeVercel(vercel: VercelProjectRef | null): VercelProjectRef | null {
+  if (vercel === null) return null
+  const projectId = vercel.projectId.trim()
+  if (!projectId) throw new Error('Vercel project ID is required')
+  const teamId = vercel.teamId?.trim()
+  return { projectId, teamId: teamId ? teamId : null }
 }
 
 function isHttpUrl(value: string): boolean {

@@ -1,6 +1,14 @@
-import type { PipelineStatusSummary, Project, RunStatus, WorkflowRun } from '@shared/domain'
-import type { GithubClient } from './GithubClient'
+import type {
+  PipelineKind,
+  PipelineLogs,
+  PipelineRun,
+  PipelineStatusSummary,
+  Project,
+  RunStatus
+} from '@shared/domain'
 import { GithubNotConfiguredError } from './GithubClient'
+import type { PipelineProvider } from './PipelineProvider'
+import { PipelineNotConfiguredError, computeFailureRate } from './PipelineProvider'
 import type { ProjectStore } from './ProjectStore'
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
@@ -8,53 +16,54 @@ const MAX_BACKOFF_MS = 30 * 60_000
 /** Statuses that should raise a desktop notification on transition. */
 const ATTENTION_STATUSES: ReadonlySet<RunStatus> = new Set(['failure', 'action_required'])
 
-interface GithubWorkflowRun {
-  id: number
-  name: string | null
-  head_branch: string | null
-  head_sha: string
-  display_title: string
-  status: string | null
-  conclusion: string | null
-  run_started_at: string | null
-  updated_at: string
-  html_url: string
+/** Errors that mean "this provider isn't ready yet" rather than a poll failure. */
+function isNotConfigured(err: unknown): boolean {
+  return err instanceof GithubNotConfiguredError || err instanceof PipelineNotConfiguredError
 }
 
-interface RepoPollState {
+interface ProviderPollState {
   etag: string | null
-  runs: WorkflowRun[]
-  summary: PipelineStatusSummary
-  /** run id -> status we last notified for, to de-duplicate notifications. */
-  notified: Map<number, RunStatus>
+  runs: PipelineRun[]
+  /** run id (unique within this provider's kind) -> status we last notified for, to de-duplicate. */
+  notified: Map<string, RunStatus>
   /**
-   * False until the first successful fetch. That snapshot is a baseline, not a
-   * transition: runs that were already failing before the app started must not
-   * spam notifications on launch (the pipelines UI shows them instead).
+   * False until this provider's first successful poll for the project. That
+   * snapshot is a baseline, not a transition: runs that were already failing
+   * before the app started must not spam notifications on launch.
    */
   baselined: boolean
   backoffMs: number
   nextPollAt: number
+  /** Message from this provider's most recent failed poll; null while it succeeds. */
+  lastError: string | null
+}
+
+interface ProjectPollState {
+  providers: Map<PipelineKind, ProviderPollState>
 }
 
 export interface PipelineEventSink {
-  pipelineUpdated(projectId: string, summary: PipelineStatusSummary, runs: WorkflowRun[]): void
+  pipelineUpdated(projectId: string, summary: PipelineStatusSummary, runs: PipelineRun[]): void
   /** Raise a desktop notification for a run needing attention. */
-  notifyRun(project: Project, run: WorkflowRun): void
+  notifyRun(project: Project, run: PipelineRun): void
 }
 
 /**
- * Polls GitHub Actions per tracked repo with ETag conditional requests and
- * per-repo backoff (D5), diffs run states, and notifies on transitions to
- * failure/action_required exactly once per run+status. The first fetch after
- * startup is a silent baseline so pre-existing failures do not spam the user.
+ * Polls every registered PipelineProvider (GitHub Actions, Vercel
+ * deployments, or a future source) for each tracked project, merges their
+ * runs into one timeline, and derives a combined status summary including a
+ * rolling failure rate. Each provider keeps its own ETag/backoff state so
+ * one slow or rate-limited source never blocks another; notifications
+ * de-duplicate per provider kind + run id. The first poll of a given
+ * provider for a project is a silent baseline so pre-existing failures do
+ * not spam the user at startup.
  */
 export class PipelineService {
-  private readonly state = new Map<string, RepoPollState>()
+  private readonly state = new Map<string, ProjectPollState>()
   private timer: ReturnType<typeof setInterval> | null = null
 
   constructor(
-    private readonly github: GithubClient,
+    private readonly providers: PipelineProvider[],
     private readonly projects: ProjectStore,
     private readonly sink: PipelineEventSink,
     private readonly pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS
@@ -71,150 +80,139 @@ export class PipelineService {
     this.timer = null
   }
 
-  getRuns(projectId: string): WorkflowRun[] {
-    return this.state.get(projectId)?.runs ?? []
+  /** All runs across every configured provider for the project, newest first. */
+  getRuns(projectId: string): PipelineRun[] {
+    return this.mergedRuns(projectId)
   }
 
   getSummary(projectId: string): PipelineStatusSummary | null {
-    return this.state.get(projectId)?.summary ?? null
+    const projectState = this.state.get(projectId)
+    if (!projectState) return null
+    return summarizeWithErrors(this.mergedRuns(projectId), projectState)
   }
 
-  /** One scheduler pass: poll every repo whose next-poll time has arrived. */
+  /** Fetch logs for one run; rejects when its provider does not support logs or is not configured. */
+  async fetchLogs(projectId: string, pipeline: PipelineKind, runId: string): Promise<PipelineLogs> {
+    const project = this.projects.getOrThrow(projectId)
+    const provider = this.providers.find((p) => p.kind === pipeline)
+    if (!provider?.fetchLogs)
+      throw new Error(`The "${pipeline}" pipeline does not support viewing logs here.`)
+    return provider.fetchLogs(project, runId)
+  }
+
+  /** One scheduler pass: poll every configured provider whose next-poll time has arrived. */
   async tick(now: number = Date.now()): Promise<void> {
-    if (!this.github.isConfigured()) return
     for (const project of this.projects.list()) {
-      if (!project.github) continue
-      const repoState = this.stateFor(project.id)
-      if (now < repoState.nextPollAt) continue
-      await this.pollProject(project, repoState, now)
+      for (const provider of this.providers) {
+        if (!provider.isConfigured(project)) continue
+        const providerState = this.providerStateFor(project.id, provider.kind)
+        if (now < providerState.nextPollAt) continue
+        await this.pollOne(project, provider, providerState, now)
+      }
     }
   }
 
-  private async pollProject(project: Project, repoState: RepoPollState, now: number): Promise<void> {
-    const { owner, repo } = project.github!
+  private async pollOne(
+    project: Project,
+    provider: PipelineProvider,
+    providerState: ProviderPollState,
+    now: number
+  ): Promise<void> {
     try {
-      const response = await this.github.conditionalGet<{ workflow_runs: GithubWorkflowRun[] }>(
-        '/repos/{owner}/{repo}/actions/runs',
-        { owner, repo, per_page: 20 },
-        repoState.etag
-      )
-      repoState.backoffMs = 0
-      repoState.nextPollAt = now + this.pollIntervalMs
-      const hadError = Boolean(repoState.summary.error)
-      if (response.notModified || !response.data) {
+      const result = await provider.poll(project, providerState.etag)
+      providerState.backoffMs = 0
+      providerState.nextPollAt = now + this.pollIntervalMs
+      const hadError = providerState.lastError !== null
+      if (result.notModified) {
+        providerState.etag = result.etag ?? providerState.etag
         if (hadError) {
           // Recovered from a failing poll without new data; clear the stale error.
-          repoState.summary = { ...repoState.summary, error: null }
-          this.sink.pipelineUpdated(project.id, repoState.summary, repoState.runs)
+          providerState.lastError = null
+          this.emit(project)
         }
         return
       }
-
-      repoState.etag = response.etag
-      const runs = response.data.workflow_runs.map(mapRun)
-      const summary = { ...summarize(runs), error: null }
-      repoState.runs = runs
-      repoState.summary = summary
-      this.raiseNotifications(project, runs, repoState)
-      this.sink.pipelineUpdated(project.id, summary, runs)
+      providerState.etag = result.etag
+      providerState.runs = result.runs
+      providerState.lastError = null
+      this.raiseNotifications(project, result.runs, providerState)
+      this.emit(project)
     } catch (err) {
-      if (err instanceof GithubNotConfiguredError) return
-      // Back off exponentially per repo on any API failure (rate limit, network),
-      // and surface the failure so the UI never waits silently (task 7.2).
-      repoState.backoffMs = Math.min(Math.max(repoState.backoffMs * 2, this.pollIntervalMs), MAX_BACKOFF_MS)
-      repoState.nextPollAt = now + repoState.backoffMs
-      repoState.summary = {
-        ...repoState.summary,
-        error: err instanceof Error ? err.message : String(err)
-      }
-      this.sink.pipelineUpdated(project.id, repoState.summary, repoState.runs)
+      if (isNotConfigured(err)) return
+      // Back off exponentially per provider on any failure (rate limit, network),
+      // and surface it so the UI never waits silently.
+      providerState.backoffMs = Math.min(
+        Math.max(providerState.backoffMs * 2, this.pollIntervalMs),
+        MAX_BACKOFF_MS
+      )
+      providerState.nextPollAt = now + providerState.backoffMs
+      providerState.lastError = err instanceof Error ? err.message : String(err)
+      this.emit(project)
     }
   }
 
-  private raiseNotifications(project: Project, runs: WorkflowRun[], repoState: RepoPollState): void {
-    const isBaseline = !repoState.baselined
-    repoState.baselined = true
+  private raiseNotifications(project: Project, runs: PipelineRun[], providerState: ProviderPollState): void {
+    const isBaseline = !providerState.baselined
+    providerState.baselined = true
     for (const run of runs) {
       if (!ATTENTION_STATUSES.has(run.status)) {
         // A rerun that recovered may fail again later; forget the old notification.
-        if (run.status === 'success') repoState.notified.delete(run.id)
+        if (run.status === 'success') providerState.notified.delete(run.id)
         continue
       }
-      if (repoState.notified.get(run.id) === run.status) continue
-      repoState.notified.set(run.id, run.status)
-      // Baseline runs are recorded as seen but stay silent (see RepoPollState.baselined).
+      if (providerState.notified.get(run.id) === run.status) continue
+      providerState.notified.set(run.id, run.status)
+      // Baseline runs are recorded as seen but stay silent (see ProviderPollState.baselined).
       if (!isBaseline) this.sink.notifyRun(project, run)
     }
   }
 
-  private stateFor(projectId: string): RepoPollState {
-    let repoState = this.state.get(projectId)
-    if (!repoState) {
-      repoState = {
+  private emit(project: Project): void {
+    const projectState = this.state.get(project.id)
+    if (!projectState) return
+    const summary = summarizeWithErrors(this.mergedRuns(project.id), projectState)
+    this.sink.pipelineUpdated(project.id, summary, this.mergedRuns(project.id))
+  }
+
+  private mergedRuns(projectId: string): PipelineRun[] {
+    const projectState = this.state.get(projectId)
+    if (!projectState) return []
+    return [...projectState.providers.values()]
+      .flatMap((s) => s.runs)
+      .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
+  }
+
+  private providerStateFor(projectId: string, kind: PipelineKind): ProviderPollState {
+    let projectState = this.state.get(projectId)
+    if (!projectState) {
+      projectState = { providers: new Map() }
+      this.state.set(projectId, projectState)
+    }
+    let providerState = projectState.providers.get(kind)
+    if (!providerState) {
+      providerState = {
         etag: null,
         runs: [],
-        summary: { overall: 'unknown', failingRuns: 0, updatedAt: null },
         notified: new Map(),
         baselined: false,
         backoffMs: 0,
-        nextPollAt: 0
+        nextPollAt: 0,
+        lastError: null
       }
-      this.state.set(projectId, repoState)
+      projectState.providers.set(kind, providerState)
     }
-    return repoState
+    return providerState
   }
 }
 
-export function mapRun(run: GithubWorkflowRun): WorkflowRun {
-  return {
-    id: run.id,
-    workflowName: run.name ?? 'workflow',
-    branch: run.head_branch ?? '',
-    commitSha: run.head_sha,
-    commitMessage: run.display_title,
-    status: mapStatus(run.status, run.conclusion),
-    startedAt: run.run_started_at,
-    durationSeconds:
-      run.run_started_at && run.status === 'completed'
-        ? Math.max(0, Math.round((Date.parse(run.updated_at) - Date.parse(run.run_started_at)) / 1000))
-        : null,
-    url: run.html_url
-  }
-}
-
-function mapStatus(status: string | null, conclusion: string | null): RunStatus {
-  if (status === 'completed') {
-    switch (conclusion) {
-      case 'success':
-        return 'success'
-      case 'failure':
-      case 'timed_out':
-      case 'startup_failure':
-        return 'failure'
-      case 'cancelled':
-        return 'cancelled'
-      case 'action_required':
-        return 'action_required'
-      case 'neutral':
-      case 'skipped':
-        return 'neutral'
-      default:
-        return 'unknown'
-    }
-  }
-  if (status === 'queued' || status === 'pending') return 'queued'
-  if (status === 'in_progress') return 'in_progress'
-  if (status === 'waiting' || status === 'action_required') return 'action_required'
-  return 'unknown'
-}
-
-export function summarize(runs: WorkflowRun[]): PipelineStatusSummary {
-  // Latest run per workflow decides the overall state.
-  const latestPerWorkflow = new Map<string, WorkflowRun>()
+/** Latest run per (pipeline, name) group decides the overall status. */
+export function summarize(runs: PipelineRun[]): PipelineStatusSummary {
+  const latestPerGroup = new Map<string, PipelineRun>()
   for (const run of runs) {
-    if (!latestPerWorkflow.has(run.workflowName)) latestPerWorkflow.set(run.workflowName, run)
+    const key = `${run.pipeline}:${run.name}`
+    if (!latestPerGroup.has(key)) latestPerGroup.set(key, run)
   }
-  const latest = [...latestPerWorkflow.values()]
+  const latest = [...latestPerGroup.values()]
   const failing = latest.filter((r) => r.status === 'failure' || r.status === 'action_required')
   let overall: RunStatus = 'unknown'
   if (failing.length > 0)
@@ -225,9 +223,20 @@ export function summarize(runs: WorkflowRun[]): PipelineStatusSummary {
     latest.every((r) => r.status === 'success' || r.status === 'neutral' || r.status === 'cancelled')
   )
     overall = 'success'
+  const failureRate = computeFailureRate(runs)
   return {
     overall,
     failingRuns: failing.length,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    error: null,
+    failureRatePercent: failureRate.percent,
+    failureRateSampleSize: failureRate.sampleSize
   }
+}
+
+function summarizeWithErrors(runs: PipelineRun[], projectState: ProjectPollState): PipelineStatusSummary {
+  const errors = [...projectState.providers.values()]
+    .map((s) => s.lastError)
+    .filter((e): e is string => e !== null)
+  return { ...summarize(runs), error: errors.length > 0 ? errors.join('; ') : null }
 }

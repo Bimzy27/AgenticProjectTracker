@@ -46,6 +46,7 @@ describe('Watchers repo watching', () => {
     path: repo,
     tags: [],
     github: null,
+    vercel: null,
     links: [],
     looping: false,
     agentTaskCreation: false,

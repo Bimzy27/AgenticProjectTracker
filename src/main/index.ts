@@ -2,7 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { BrowserWindow, Notification, app, dialog, nativeTheme, safeStorage, shell } from 'electron'
-import type { Project, WorkflowRun } from '@shared/domain'
+import type { PipelineRun, Project } from '@shared/domain'
 import { createTrackerApi } from './api'
 import { emitTrackerEvent, registerTrackerApi } from './ipc'
 import { ActiveTasksService } from './services/ActiveTasksService'
@@ -14,8 +14,10 @@ import {
   GithubRepoStatsProvider,
   GithubTrafficProvider
 } from './services/GithubWidgetProviders'
+import { GithubActionsPipelineProvider } from './services/GithubActionsPipelineProvider'
 import { JsonMetricProvider } from './services/JsonMetricProvider'
 import { VercelAnalyticsProvider } from './services/VercelAnalyticsProvider'
+import { VercelPipelineProvider } from './services/VercelPipelineProvider'
 import { createFakeAgentQuery } from './services/FakeAgentQuery'
 import { GithubClient } from './services/GithubClient'
 import { GitService } from './services/GitService'
@@ -32,6 +34,7 @@ import { SettingsStore } from './services/SettingsStore'
 import { TaskService } from './services/TaskService'
 import { TokenStore } from './services/TokenStore'
 import { UsageService } from './services/UsageService'
+import { VercelTokenStore } from './services/VercelTokenStore'
 import { Watchers } from './services/Watchers'
 
 let mainWindow: BrowserWindow | null = null
@@ -174,19 +177,24 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     // APT_GITHUB_API is a test seam; undefined falls back to the real GitHub API.
     process.env.APT_GITHUB_API
   )
+  const vercelTokens = new VercelTokenStore(userDataDir, cipher)
 
   // APT_PIPELINE_POLL_MS is a test seam; unset (or invalid) falls back to the
   // production poll interval so E2E runs can drive status transitions quickly.
   const pollMsOverride = Number(process.env.APT_PIPELINE_POLL_MS)
   const pipelines = new PipelineService(
-    github,
+    [
+      new GithubActionsPipelineProvider(github),
+      // APT_VERCEL_API is a test seam; undefined falls back to the real Vercel API.
+      new VercelPipelineProvider(vercelTokens, { apiBase: process.env.APT_VERCEL_API })
+    ],
     store,
     {
       pipelineUpdated: (projectId, summary, runs) => {
         emitTrackerEvent('pipeline-updated', { projectId, summary, runs })
         void pushProjectStatus(projectId)
       },
-      notifyRun: (project: Project, run: WorkflowRun) => notifyPipelineRun(project, run)
+      notifyRun: (project: Project, run: PipelineRun) => notifyPipelineRun(project, run)
     },
     Number.isFinite(pollMsOverride) && pollMsOverride > 0 ? pollMsOverride : undefined
   )
@@ -269,6 +277,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     analytics,
     github,
     tokens,
+    vercelTokens,
     editor,
     usage,
     settings,
@@ -301,7 +310,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     }
   }
 
-  function notifyPipelineRun(project: Project, run: WorkflowRun): void {
+  function notifyPipelineRun(project: Project, run: PipelineRun): void {
     // APT_NOTIFICATION_LOG is a test seam: native desktop notifications cannot
     // be observed from E2E, so append them to a JSONL file instead of showing
     // them. Unset falls back to real notifications.
@@ -311,7 +320,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
         JSON.stringify({
           projectId: project.id,
           runId: run.id,
-          workflowName: run.workflowName,
+          workflowName: run.name,
           status: run.status
         }) + '\n'
       )
@@ -320,7 +329,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     if (!Notification.isSupported()) return
     const label = run.status === 'failure' ? 'failed' : 'needs attention'
     const notification = new Notification({
-      title: `${project.name}: ${run.workflowName} ${label}`,
+      title: `${project.name}: ${run.name} ${label}`,
       body: `Branch ${run.branch} · ${run.commitMessage}`
     })
     notification.on('click', () => {

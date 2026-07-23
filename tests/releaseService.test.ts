@@ -41,6 +41,7 @@ function projectFor(repo: string): Project {
     path: repo,
     tags: [],
     github: null,
+    vercel: null,
     links: [],
     looping: false,
     agentTaskCreation: false,

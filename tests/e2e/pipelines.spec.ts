@@ -64,7 +64,7 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
 }
 
-function notifications(): Array<{ runId: number; workflowName: string; status: string }> {
+function notifications(): Array<{ runId: string; workflowName: string; status: string }> {
   if (!existsSync(notificationLog)) return []
   return readFileSync(notificationLog, 'utf8')
     .split('\n')
@@ -109,6 +109,20 @@ test.beforeAll(async () => {
       res.end(JSON.stringify({ message: 'Bad credentials' }))
       return
     }
+    const jobsMatch = new RegExp(`^/repos/${REPO_SLUG}/actions/runs/(\\d+)/jobs$`).exec(req.url ?? '')
+    if (jobsMatch) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ jobs: [{ id: 9001, name: 'deploy' }] }))
+      return
+    }
+    if (req.url === `/repos/${REPO_SLUG}/actions/jobs/9001/logs`) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end(
+        '2026-07-15T08:01:00.0000000Z Building…\n' +
+          '2026-07-15T08:02:00.0000000Z ##[error]deploy failed: missing env var\n'
+      )
+      return
+    }
     if (req.url?.startsWith(`/repos/${REPO_SLUG}/actions/runs`)) {
       pollCount += 1
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -144,9 +158,11 @@ test('set up a GitHub-linked project with a token', async () => {
   await expect(page.getByRole('heading', { name: 'Pipeline Demo' })).toBeVisible()
 
   await page.getByRole('button', { name: '⚙ Settings' }).click()
-  await page.getByPlaceholder(/ghp_/).fill(FAKE_TOKEN)
-  await page.getByRole('button', { name: 'Save token' }).click()
-  await expect(page.getByText('Token saved to the OS credential vault.')).toBeVisible()
+  // Settings has one "Save token" button per provider section (GitHub, Vercel, …), so scope to GitHub's.
+  const githubSection = page.locator('.settings-section').filter({ hasText: 'GitHub access' })
+  await githubSection.getByPlaceholder(/ghp_/).fill(FAKE_TOKEN)
+  await githubSection.getByRole('button', { name: 'Save token' }).click()
+  await expect(githubSection.getByText('Token saved to the OS credential vault.')).toBeVisible()
 })
 
 test('pipelines tab lists workflow runs from the GitHub API', async () => {
@@ -159,8 +175,24 @@ test('pipelines tab lists workflow runs from the GitHub API', async () => {
   await expect(rows.filter({ hasText: 'Deploy' }).locator('.badge')).toHaveText('running')
   await expect(rows.filter({ hasText: 'Deploy' }).getByText('chore: ship it')).toBeVisible()
   await expect(
-    rows.filter({ hasText: 'CI' }).getByRole('link', { name: 'View on GitHub ↗' })
+    rows.filter({ hasText: 'CI' }).getByRole('link', { name: 'View on GitHub Actions ↗' })
   ).toHaveAttribute('href', `https://github.com/${REPO_SLUG}/actions/runs/101`)
+  await expect(rows.filter({ hasText: 'CI' }).getByRole('button', { name: 'View logs' })).toBeVisible()
+})
+
+test('inspecting logs of a GitHub Actions run shows its job output in-app', async () => {
+  const ci = page.locator('.runs-table tbody tr').filter({ hasText: 'CI' })
+  await ci.getByRole('button', { name: 'View logs' }).click()
+
+  const modal = page.locator('.modal.modal-wide')
+  await expect(modal.getByText('Building…')).toBeVisible()
+  await expect(modal.getByText(/##\[error\]deploy failed: missing env var/)).toBeVisible()
+  await expect(modal.getByRole('link', { name: 'View full logs externally ↗' })).toHaveAttribute(
+    'href',
+    `https://github.com/${REPO_SLUG}/actions/runs/101`
+  )
+  await modal.getByRole('button', { name: 'Close' }).click()
+  await expect(modal).toHaveCount(0)
 })
 
 test('a run failing after the baseline updates the tab and raises a notification', async () => {
@@ -178,7 +210,7 @@ test('a run failing after the baseline updates the tab and raises a notification
   await expect(deploy.locator('.badge')).toHaveText('failing')
   await expect
     .poll(() => notifications(), { timeout: 10_000 })
-    .toEqual([{ projectId: expect.any(String), runId: 102, workflowName: 'Deploy', status: 'failure' }])
+    .toEqual([{ projectId: expect.any(String), runId: '102', workflowName: 'Deploy', status: 'failure' }])
 
   // Give the poller a few more cycles: the same failure must not notify again.
   const polled = pollCount
@@ -210,5 +242,5 @@ test('failures already present at app launch stay silent, new ones still notify'
   await expect(rows.filter({ hasText: 'Nightly' }).locator('.badge')).toHaveText('failing')
   await expect
     .poll(() => notifications(), { timeout: 10_000 })
-    .toEqual([{ projectId: expect.any(String), runId: 103, workflowName: 'Nightly', status: 'failure' }])
+    .toEqual([{ projectId: expect.any(String), runId: '103', workflowName: 'Nightly', status: 'failure' }])
 })

@@ -1,35 +1,24 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { GithubAuthState } from '@shared/domain'
+import type { SecretCipher } from './SecretFileStore'
+import { SecretFileStore } from './SecretFileStore'
 
 const execFileAsync = promisify(execFile)
 
-/**
- * Abstraction over Electron's safeStorage so this service stays testable and
- * Electron-free (D2). The composition root injects the real implementation.
- */
-export interface SecretCipher {
-  isAvailable(): boolean
-  encrypt(plainText: string): Buffer
-  decrypt(encrypted: Buffer): string
-}
+export type { SecretCipher }
 
 /**
  * Stores the GitHub PAT encrypted with the OS credential vault (D5).
  * The token never touches disk in plain text.
  */
 export class TokenStore {
-  private readonly tokenPath: string
+  private readonly secret: SecretFileStore
   private source: GithubAuthState['source'] = null
 
-  constructor(
-    userDataDir: string,
-    private readonly cipher: SecretCipher
-  ) {
-    this.tokenPath = join(userDataDir, 'github-token.bin')
-    if (existsSync(this.tokenPath)) this.source = 'vault'
+  constructor(userDataDir: string, cipher: SecretCipher) {
+    this.secret = new SecretFileStore(userDataDir, 'github-token.bin', cipher)
+    if (this.secret.has()) this.source = 'vault'
   }
 
   getAuthState(): GithubAuthState {
@@ -37,27 +26,16 @@ export class TokenStore {
   }
 
   getToken(): string | null {
-    if (!existsSync(this.tokenPath)) return null
-    try {
-      return this.cipher.decrypt(readFileSync(this.tokenPath))
-    } catch {
-      return null
-    }
+    return this.secret.get()
   }
 
   setToken(token: string, source: Exclude<GithubAuthState['source'], null> = 'vault'): void {
-    const trimmed = token.trim()
-    if (!trimmed) throw new Error('Token is empty')
-    if (!this.cipher.isAvailable()) {
-      throw new Error('OS credential encryption is unavailable; refusing to store the token')
-    }
-    mkdirSync(dirname(this.tokenPath), { recursive: true })
-    writeFileSync(this.tokenPath, this.cipher.encrypt(trimmed))
+    this.secret.set(token)
     this.source = source
   }
 
   clearToken(): void {
-    rmSync(this.tokenPath, { force: true })
+    this.secret.clear()
     this.source = null
   }
 

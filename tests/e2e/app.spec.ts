@@ -221,9 +221,9 @@ test('release tab warns when work after the last tag sits uncommitted', async ()
   await expect(page.getByText(/uncommitted changes/)).toBeVisible()
 })
 
-test('settings shows the not-configured GitHub auth state', async () => {
+test('settings shows the not-configured GitHub and Vercel auth states', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
-  await expect(page.getByText(/Status: not configured/)).toBeVisible()
+  await expect(page.getByText(/Status: not configured/)).toHaveCount(2)
 })
 
 test('theme setting switches dark mode and persists the preference', async () => {
