@@ -162,6 +162,8 @@ test('shows the working tree diff with the modified line', async () => {
   await expect(page.getByRole('button', { name: 'Working tree' })).toBeVisible()
   await expect(page.getByText('hello.ts').first()).toBeVisible()
   await expect(page.getByText('export const greeting = "hello world"').first()).toBeVisible()
+  // The diffs toolbar shows which branch is currently checked out.
+  await expect(page.getByTitle('Current branch')).toHaveText('⎇ main')
 })
 
 test('the VSCode button opens the repository root in the editor', async () => {

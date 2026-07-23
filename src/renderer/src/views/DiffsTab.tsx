@@ -47,6 +47,11 @@ export function DiffsTab({ project }: { project: Project }): React.JSX.Element {
   return (
     <div className="diffs-tab">
       <div className="toolbar">
+        {refs?.currentBranch && (
+          <span className="stat" title="Current branch">
+            ⎇ {refs.currentBranch}
+          </span>
+        )}
         <button
           className={`chip ${source.kind === 'working-tree' ? 'active' : ''}`}
           onClick={() => setSource({ kind: 'working-tree' })}
