@@ -30,6 +30,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   queued: 'queued',
   running: 'running',
   'needs-input': 'needs input',
+  paused: 'paused',
   review: 'review',
   done: 'done',
   failed: 'failed'
@@ -354,7 +355,13 @@ function TaskDetail({
           ) : (
             <button
               disabled={!archivable}
-              title={archivable ? 'Hide the task in the archive' : 'Finish or stop the delegated run first'}
+              title={
+                archivable
+                  ? 'Hide the task in the archive'
+                  : task.state === 'paused'
+                    ? 'Requeue and finish it, or mark it failed, before archiving'
+                    : 'Finish or stop the delegated run first'
+              }
               onClick={() => onAction(() => tracker.invoke('archiveTask', project.id, task.id))}
             >
               Archive
@@ -426,8 +433,18 @@ function TaskActions({
   // undefined keeps the task's model; string/null switches the run's model on answer/resume.
   const [nextModel, setNextModel] = useState<string | null | undefined>(undefined)
 
-  const invoke = (method: 'delegateTask' | 'stopRun' | 'resumeRun' | 'acceptTask') => () =>
-    onAction(() => tracker.invoke(method, project.id, task.id))
+  const invoke =
+    (method: 'delegateTask' | 'stopRun' | 'resumeRun' | 'acceptTask' | 'pauseTask' | 'requeueTask') => () =>
+      onAction(() => tracker.invoke(method, project.id, task.id))
+
+  const pauseButton = (
+    <button
+      title="Park this task without losing its run, freeing this project for other queued work"
+      onClick={invoke('pauseTask')}
+    >
+      ⏸ Pause
+    </button>
+  )
 
   switch (task.state) {
     case 'draft':
@@ -444,12 +461,14 @@ function TaskActions({
       return (
         <div className="task-action-bar">
           <span className="muted">Queued; starts when a run slot is free.</span>
+          {pauseButton}
         </div>
       )
     case 'running':
       return (
         <div className="task-action-bar">
           <span className="muted">{run?.progressNote ?? 'The agent is working…'}</span>
+          {pauseButton}
           <button className="danger" onClick={invoke('stopRun')}>
             ⏹ Stop run
           </button>
@@ -475,6 +494,7 @@ function TaskActions({
                 Resume run
               </button>
               <ModelSwitch current={task.model} value={nextModel} onChange={setNextModel} />
+              {pauseButton}
               <button className="danger" onClick={invoke('stopRun')}>
                 Mark failed
               </button>
@@ -501,12 +521,36 @@ function TaskActions({
                   Send answer
                 </button>
                 <ModelSwitch current={task.model} value={nextModel} onChange={setNextModel} />
+                {pauseButton}
                 <button className="danger" onClick={invoke('stopRun')}>
                   Mark failed
                 </button>
               </div>
             </>
           )}
+        </div>
+      )
+    }
+    case 'paused': {
+      const message = run?.escalation?.message
+      return (
+        <div className="escalation-panel">
+          <h3>Paused</h3>
+          <p className="muted">
+            Parked by you; other queued tasks in this project can proceed in the meantime. Requeue it when you
+            are ready to pick it back up.
+          </p>
+          {message && message !== 'Paused by the user' && <pre className="escalation-message">{message}</pre>}
+          <div className="task-action-bar">
+            <button className="primary" onClick={invoke('requeueTask')}>
+              ▶ Requeue
+            </button>
+            {run && (
+              <button className="danger" onClick={invoke('stopRun')}>
+                Mark failed
+              </button>
+            )}
+          </div>
         </div>
       )
     }

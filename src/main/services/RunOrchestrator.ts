@@ -10,7 +10,8 @@ import type {
   SessionPermissionMode,
   SessionState,
   SessionSummary,
-  TaskDefinition
+  TaskDefinition,
+  TaskState
 } from '@shared/domain'
 import { ACTIVE_TASK_STATES, agentModelLabel } from '@shared/domain'
 import {
@@ -27,6 +28,9 @@ import type { SessionOwner, RunSessionObserver } from './SessionService'
 import type { TaskService } from './TaskService'
 
 const DEFAULT_MAX_CONCURRENT_RUNS = 3
+
+/** States from which a task may be manually paused (see RunOrchestrator.pause). */
+const PAUSABLE_STATES: ReadonlySet<TaskState> = new Set(['queued', 'running', 'needs-input'])
 
 interface RunsFile {
   version: 1
@@ -166,6 +170,7 @@ export class RunOrchestrator {
       running: tasks.filter((t) => t.state === 'running').length,
       needsInput: tasks.filter((t) => t.state === 'needs-input').length,
       review: tasks.filter((t) => t.state === 'review').length,
+      paused: tasks.filter((t) => t.state === 'paused').length,
       activeTaskTitle: runningTask?.title ?? null,
       activeProgressNote: activeRun?.progressNote ?? null
     }
@@ -256,6 +261,53 @@ export class RunOrchestrator {
     this.pump()
   }
 
+  /**
+   * Manually park a queued, running, or needs-input task without discarding
+   * its run: a live session is interrupted, but (unlike stop(), which ends
+   * the run in failed) the run is parked as interrupted so requeue() can pick
+   * it back up. The task drops out of projectBusy immediately (see pump/
+   * startCandidates), freeing its project for other queued work right away -
+   * the escape hatch for a task blocked on something outside the agent's
+   * control, e.g. an upstream review or a dependency update from a third
+   * party.
+   */
+  async pause(taskId: string): Promise<void> {
+    const task = this.tasks.getOrThrow(taskId)
+    if (!PAUSABLE_STATES.has(task.state)) {
+      throw new Error(`Task cannot be paused from state '${task.state}'`)
+    }
+    const run = this.latestRun(taskId)
+    if (run && (run.state === 'active' || run.state === 'needs-input')) {
+      this.runtimeFor(run.id).stopping = true
+      if (this.sessions.isSessionAlive(run.sessionId)) {
+        await this.sessions.interruptSession(run.projectId, run.sessionId)
+      }
+      run.state = 'interrupted'
+      run.escalation = {
+        kind: 'interrupted',
+        message: 'Paused by the user',
+        history: this.failureHistory(run),
+        at: new Date().toISOString()
+      }
+      this.pushEvent(run, 'paused', 'Paused by the user')
+      this.commit(run)
+    }
+    this.tasks.setState(taskId, 'paused')
+    this.pump()
+  }
+
+  /**
+   * Return a paused task to the queue; it starts (or resumes a parked run,
+   * see beginRun) when capacity allows, same as any other queued task.
+   */
+  requeue(taskId: string): TaskDefinition {
+    const task = this.tasks.getOrThrow(taskId)
+    if (task.state !== 'paused') throw new Error('Task is not paused')
+    this.tasks.setState(taskId, 'queued')
+    this.pump()
+    return this.tasks.getOrThrow(taskId)
+  }
+
   // ---------- Scheduling ----------
 
   /**
@@ -273,6 +325,22 @@ export class RunOrchestrator {
     this.pumpLooping()
     for (const task of this.startCandidates()) {
       if (this.activeRunCount() >= this.maxConcurrentRuns) return
+      this.beginRun(task)
+    }
+  }
+
+  /**
+   * Start a queued task's next run. When its latest run is still parked as
+   * interrupted - the shape a task is left in after pause() - reattach to it
+   * instead of starting a fresh briefing, so a requeued task's agent picks up
+   * where it left off; otherwise start clean, same as any first delegation.
+   */
+  private beginRun(task: TaskDefinition): void {
+    const run = this.latestRun(task.id)
+    if (run && run.state === 'interrupted') {
+      this.pushEvent(run, 'resumed', 'Resumed after being requeued')
+      this.resumeWith(run, task, RESUME_PROMPT)
+    } else {
       this.startRun(task)
     }
   }

@@ -826,8 +826,133 @@ describe('RunOrchestrator', () => {
       running: 1,
       needsInput: 0,
       review: 0,
+      paused: 0,
       activeTaskTitle: 'Running task',
       activeProgressNote: 'building the form'
+    })
+  })
+
+  describe('pause and requeue', () => {
+    it('pauses a running task, interrupting its session and freeing the project for the next queued task', async () => {
+      const orch = makeOrchestrator()
+      const first = makeTask('p1', { title: 'Blocked on upstream' })
+      const second = makeTask('p1', { title: 'Next in line' })
+      orch.delegate(first.id)
+      orch.delegate(second.id)
+      const session = sessions.last()
+      sessions.turn(session, status('working', 'digging into the upstream dependency'))
+      expect(tasks.getOrThrow(second.id).state).toBe('queued')
+
+      await orch.pause(first.id)
+
+      expect(sessions.interrupted).toContain(session.id)
+      const run = orch.latestRun(first.id)!
+      expect(run.state).toBe('interrupted')
+      expect(run.escalation).toMatchObject({ kind: 'interrupted', message: 'Paused by the user' })
+      expect(run.events.map((e) => e.kind)).toContain('paused')
+      expect(tasks.getOrThrow(first.id).state).toBe('paused')
+
+      // Pausing frees the project immediately: the next queued task starts.
+      expect(tasks.getOrThrow(second.id).state).toBe('running')
+    })
+
+    it('pauses a queued task that never started, with no run to touch', async () => {
+      const orch = makeOrchestrator({ maxConcurrentRuns: 1 })
+      const first = makeTask('p1', { title: 'Running' })
+      const second = makeTask('p1', { title: 'Waiting' })
+      orch.delegate(first.id)
+      orch.delegate(second.id)
+      expect(tasks.getOrThrow(second.id).state).toBe('queued')
+
+      await orch.pause(second.id)
+
+      expect(tasks.getOrThrow(second.id).state).toBe('paused')
+      expect(orch.latestRun(second.id)).toBeNull()
+      // The first task is untouched; it keeps running.
+      expect(tasks.getOrThrow(first.id).state).toBe('running')
+    })
+
+    it('pauses a needs-input task so it no longer blocks its project', async () => {
+      const orch = makeOrchestrator()
+      const first = makeTask('p1')
+      const second = makeTask('p1', { title: 'Waiting behind the block' })
+      orch.delegate(first.id)
+      orch.delegate(second.id)
+      sessions.turn(sessions.last(), status('question', 'which auth provider?'))
+      expect(tasks.getOrThrow(first.id).state).toBe('needs-input')
+      expect(tasks.getOrThrow(second.id).state).toBe('queued')
+
+      await orch.pause(first.id)
+
+      expect(tasks.getOrThrow(first.id).state).toBe('paused')
+      expect(orch.latestRun(first.id)!.state).toBe('interrupted')
+      expect(tasks.getOrThrow(second.id).state).toBe('running')
+    })
+
+    it.each(['draft', 'review', 'done', 'failed'] as const)(
+      'refuses to pause a task in %s state',
+      async (state) => {
+        const orch = makeOrchestrator()
+        const task = makeTask()
+        tasks.setState(task.id, state)
+        await expect(orch.pause(task.id)).rejects.toThrow(/cannot be paused/)
+      }
+    )
+
+    it('requeues a paused task, resuming its parked run instead of starting a fresh briefing', async () => {
+      const orch = makeOrchestrator()
+      const task = makeTask('p1', { title: 'Blocked on upstream' })
+      orch.delegate(task.id)
+      const firstSession = sessions.last()
+      sessions.turn(firstSession, status('working', 'digging in'))
+      await orch.pause(task.id)
+
+      orch.requeue(task.id)
+
+      // The requeued task resumes the same session rather than starting a new one.
+      expect(sessions.sessions).toHaveLength(1)
+      expect(sessions.sent.at(-1)?.sessionId).toBe(firstSession.id)
+      expect(orch.latestRun(task.id)!.events.map((e) => e.kind)).toContain('resumed')
+      expect(tasks.getOrThrow(task.id).state).toBe('running')
+
+      sessions.turn(firstSession, COMPLETE_OK)
+      expect(tasks.getOrThrow(task.id).state).toBe('review')
+    })
+
+    it('requeues a paused task that never had a run, starting it fresh', async () => {
+      const orch = makeOrchestrator({ maxConcurrentRuns: 1 })
+      const first = makeTask('p1', { title: 'Running' })
+      const second = makeTask('p1', { title: 'Paused before it started' })
+      orch.delegate(first.id)
+      orch.delegate(second.id)
+      await orch.pause(second.id)
+
+      orch.requeue(second.id)
+      // Capacity is still full with the first task running, so it waits queued.
+      expect(tasks.getOrThrow(second.id).state).toBe('queued')
+
+      sessions.turn(sessions.sessions[0], COMPLETE_OK)
+      expect(tasks.getOrThrow(second.id).state).toBe('running')
+      expect(sessions.last().prompt).toContain('Paused before it started')
+    })
+
+    it('refuses to requeue a task that is not paused', () => {
+      const orch = makeOrchestrator()
+      const task = makeTask()
+      expect(() => orch.requeue(task.id)).toThrow(/not paused/)
+    })
+
+    it('lets the user give up on a paused task by marking it failed', async () => {
+      const orch = makeOrchestrator()
+      const task = makeTask()
+      orch.delegate(task.id)
+      sessions.turn(sessions.last(), status('working', 'going'))
+      await orch.pause(task.id)
+
+      await orch.stop(task.id)
+
+      expect(tasks.getOrThrow(task.id).state).toBe('failed')
+      expect(orch.latestRun(task.id)!.state).toBe('failed')
     })
   })
 })

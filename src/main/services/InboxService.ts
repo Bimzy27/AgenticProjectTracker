@@ -54,6 +54,11 @@ export class InboxService {
 
   private runItem(run: RunRecord, projectNames: Map<string, string>): InboxItem | null {
     const task = this.deps.tasks.get(run.taskId)
+    // Paused tasks park deliberately (see TaskState): their run can still look
+    // like an unresolved escalation (interrupted, or needs-input mid-pause),
+    // but the point of pausing is to get it out of the way until the user
+    // requeues it, so it must not resurface here.
+    if (task?.state === 'paused') return null
     const base = {
       projectId: run.projectId,
       projectName: projectNames.get(run.projectId) ?? run.projectId,

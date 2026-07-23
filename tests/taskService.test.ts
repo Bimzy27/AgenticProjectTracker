@@ -204,7 +204,7 @@ describe('TaskService', () => {
     expect(service.getOrThrow(failed.id).archived).toBe(true)
   })
 
-  it.each(['queued', 'running', 'needs-input', 'review'] as const)(
+  it.each(['queued', 'running', 'needs-input', 'paused', 'review'] as const)(
     'refuses to archive a task in %s state',
     (state) => {
       const task = service.create('p1', input)
@@ -212,6 +212,15 @@ describe('TaskService', () => {
       expect(() => service.archive(task.id)).toThrow(/cannot be archived/)
     }
   )
+
+  it('allows editing and deleting a paused task: no run is live once it is parked', () => {
+    const task = service.create('p1', input)
+    service.setState(task.id, 'paused')
+    service.update(task.id, { title: 'Renamed while paused' })
+    expect(service.getOrThrow(task.id).title).toBe('Renamed while paused')
+    service.delete(task.id)
+    expect(service.listTasks('p1')).toEqual([])
+  })
 
   it('revives an archived done task back to draft', () => {
     const task = service.create('p1', input)

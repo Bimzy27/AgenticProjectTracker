@@ -1369,6 +1369,10 @@ label.form-row {
   border-color: var(--warning);
   font-weight: 600;
 }
+.badge.task-paused {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
 .badge.task-review {
   color: var(--success);
   border-color: var(--success);

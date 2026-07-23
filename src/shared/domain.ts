@@ -115,6 +115,8 @@ export interface DelegationSummary {
   running: number
   needsInput: number
   review: number
+  /** Deliberately parked by the user; see TaskState's 'paused' case. */
+  paused: number
   /** Title of the currently running task, when one exists. */
   activeTaskTitle: string | null
   /** Latest progress note reported by the active run. */
@@ -241,7 +243,17 @@ export function agentModelLabel(model: string | null): string {
   return preset ? preset.label : (model ?? 'Default')
 }
 
-export type TaskState = 'draft' | 'queued' | 'running' | 'needs-input' | 'review' | 'done' | 'failed'
+/**
+ * 'paused' is a deliberate, user-initiated park: unlike the other states it is
+ * never reached by the run loop on its own. Pausing a queued, running, or
+ * needs-input task interrupts any live session but keeps its run resumable,
+ * and immediately frees the task's project so other queued work can start -
+ * the escape hatch for a task blocked on something outside the agent's
+ * control (an upstream review, a dependency update from a third party, etc).
+ * Requeuing returns it to 'queued'; see RunOrchestrator.pause/requeue.
+ */
+export type TaskState =
+  'draft' | 'queued' | 'running' | 'needs-input' | 'paused' | 'review' | 'done' | 'failed'
 
 export interface TaskTransition {
   state: TaskState
@@ -386,6 +398,7 @@ export interface RunEvent {
     | 'stopped'
     | 'interrupted'
     | 'resumed'
+    | 'paused'
     | 'model-changed'
   detail: string
   at: string
