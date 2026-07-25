@@ -1,0 +1,5 @@
+# Real PTY backend (node-pty), no Electron-specific rebuild needed
+
+Terminal instances must run interactive full-screen programs (`nvim`, an interactive `claude` REPL), which need real cursor/alt-screen/color terminal semantics that a plain piped `child_process` cannot provide. We chose `node-pty` (the Microsoft-maintained fork used by VS Code) as the PTY backend.
+
+We initially assumed this would need an Electron-ABI rebuild step (`@electron/rebuild`), as is common for native modules in Electron apps, and that turned out to be wrong for this specific package: node-pty 1.1.0 is built on N-API (ABI-stable across Node/Electron versions by design) and ships prebuilt binaries for `win32-x64`/`win32-arm64` directly inside the published package - no compiler toolchain, no rebuild step, no `npmRebuild` change. Verified by requiring it under plain Node with zero build step (`node -e "require('node-pty')"` loads immediately) and packaging only needs its `prebuilds/` directory unpacked from asar (native addons can't be `dlopen`'d from inside an archive), same as the existing Agent SDK binary.

@@ -25,6 +25,7 @@ import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
 import type { SettingsStore } from './services/SettingsStore'
 import type { TaskService } from './services/TaskService'
+import type { TerminalService } from './services/TerminalService'
 import type { TokenStore } from './services/TokenStore'
 import type { UsageService } from './services/UsageService'
 import type { VercelTokenStore } from './services/VercelTokenStore'
@@ -48,6 +49,7 @@ export interface ApiDeps {
   editor: EditorService
   usage: UsageService
   settings: SettingsStore
+  terminals: TerminalService
   /**
    * Applies a theme preference to the running app, injected by the
    * composition root (sets Electron's nativeTheme.themeSource, which flips
@@ -86,6 +88,7 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     removeProject: async (id: string) => {
       deps.projects.remove(id)
       deps.analytics.removeProject(id)
+      deps.terminals.closeAllForProject(id)
       deps.onProjectsChanged()
     },
     getProjectStatus: async (id: string) => deps.projects.getStatus(id),
@@ -213,6 +216,17 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     },
 
     // About
-    getAboutInfo: async () => ({ appVersion: deps.appVersion, usage: await deps.usage.getUsage() })
+    getAboutInfo: async () => ({ appVersion: deps.appVersion, usage: await deps.usage.getUsage() }),
+
+    // Terminals
+    listTerminals: async (projectId: string) => deps.terminals.list(projectId),
+    createTerminal: async (projectId: string, cols: number, rows: number) => {
+      const project = deps.store.getOrThrow(projectId)
+      return deps.terminals.create(projectId, project.path, cols, rows)
+    },
+    writeToTerminal: async (terminalId: string, data: string) => deps.terminals.write(terminalId, data),
+    resizeTerminal: async (terminalId: string, cols: number, rows: number) =>
+      deps.terminals.resize(terminalId, cols, rows),
+    closeTerminal: async (terminalId: string) => deps.terminals.close(terminalId)
   }
 }

@@ -33,6 +33,7 @@ import type { QueryFn } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
 import { SettingsStore } from './services/SettingsStore'
 import { TaskService } from './services/TaskService'
+import { TerminalService } from './services/TerminalService'
 import { TokenStore } from './services/TokenStore'
 import { UsageService } from './services/UsageService'
 import { VercelTokenStore } from './services/VercelTokenStore'
@@ -99,7 +100,12 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-function composeServices(): { pipelines: PipelineService; watchers: Watchers; store: ProjectStore } {
+function composeServices(): {
+  pipelines: PipelineService
+  watchers: Watchers
+  store: ProjectStore
+  terminals: TerminalService
+} {
   const userDataDir = app.getPath('userData')
 
   const store = new ProjectStore(userDataDir)
@@ -221,6 +227,15 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     endpoint: process.env.APT_USAGE_ENDPOINT
   })
 
+  // APT_TEST_SHELL is a test seam; undefined falls back to the real default shell.
+  const terminals = new TerminalService(
+    {
+      terminalData: (terminalId, chunk) => emitTrackerEvent('terminal-data', { terminalId, chunk }),
+      terminalExit: (terminalId, exitCode) => emitTrackerEvent('terminal-exit', { terminalId, exitCode })
+    },
+    { testShellScript: process.env.APT_TEST_SHELL }
+  )
+
   const editor = new EditorService({
     // APT_TEST_EDITOR_CMD is a test seam: treat this executable as VS Code
     // so E2E runs never depend on (or launch) a real install.
@@ -284,6 +299,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     editor,
     usage,
     settings,
+    terminals,
     applyTheme: (pref) => {
       nativeTheme.themeSource = pref
     },
@@ -343,7 +359,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     notification.show()
   }
 
-  return { pipelines, watchers, store }
+  return { pipelines, watchers, store, terminals }
 }
 
 function safeList<T>(fn: () => T[]): T[] {
@@ -361,7 +377,7 @@ if (process.env.APT_USER_DATA_DIR) {
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.branden.agentic-project-tracker')
-  const { pipelines, watchers, store } = composeServices()
+  const { pipelines, watchers, store, terminals } = composeServices()
 
   mainWindow = createWindow()
   watchers.sync(store.list())
@@ -374,6 +390,7 @@ app.whenReady().then(() => {
   app.on('before-quit', () => {
     pipelines.stop()
     void watchers.close()
+    terminals.closeAll()
   })
 })
 

@@ -10,13 +10,15 @@ import { PipelinesTab } from './PipelinesTab'
 import { ReleaseTab } from './ReleaseTab'
 import { SessionsTab } from './SessionsTab'
 import { TasksTab } from './TasksTab'
+import { TerminalsTab } from './TerminalsTab'
 
-export type ProjectTab = 'tasks' | 'diffs' | 'sessions' | 'pipelines' | 'release' | 'analytics'
+export type ProjectTab = 'tasks' | 'diffs' | 'sessions' | 'terminals' | 'pipelines' | 'release' | 'analytics'
 
 const TABS: Array<{ id: ProjectTab; label: string }> = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'diffs', label: 'Diffs' },
   { id: 'sessions', label: 'Sessions' },
+  { id: 'terminals', label: 'Terminals' },
   { id: 'pipelines', label: 'Pipelines' },
   { id: 'release', label: 'Release' },
   { id: 'analytics', label: 'Analytics' }
@@ -135,6 +137,7 @@ export function ProjectView({
       {tab === 'sessions' && (
         <SessionsTab project={project} initialSelectedId={focusSessionId} onOpenTask={onFocusTask} />
       )}
+      {tab === 'terminals' && <TerminalsTab project={project} />}
       {tab === 'pipelines' && <PipelinesTab project={project} />}
       {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
       {tab === 'analytics' && <AnalyticsTab key={project.id} project={project} />}

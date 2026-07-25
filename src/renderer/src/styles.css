@@ -1772,3 +1772,66 @@ a.project-link:hover {
   flex: 2;
   min-width: 0;
 }
+
+/* Terminals tab */
+.terminals-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.terminal-subtabs {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.terminal-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.terminal-subtab-exited {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.terminal-subtab-close {
+  color: var(--text-muted);
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.terminal-subtab-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.terminal-new {
+  margin-left: 4px;
+}
+.terminal-panes {
+  position: relative;
+  height: calc(100vh - 260px);
+}
+.terminal-pane {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+.terminal-pane.active {
+  display: flex;
+}
+.terminal-surface {
+  flex: 1;
+  min-height: 0;
+}
+.terminal-exited-banner {
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border);
+  padding: 6px 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}

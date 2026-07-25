@@ -31,6 +31,7 @@ import type {
   TaskDefinition,
   TaskInput,
   TaskPatch,
+  TerminalSnapshot,
   ThemePreference,
   TranscriptItem,
   VercelAuthState,
@@ -217,6 +218,21 @@ export interface TrackerApi {
    * in-band via `AboutInfo.usage.status`.
    */
   getAboutInfo(): Promise<AboutInfo>
+
+  // Terminals
+  /**
+   * Live and recently-exited terminals for a project, each carrying its
+   * buffered output so a (re)mounted Terminals tab can replay it.
+   */
+  listTerminals(projectId: string): Promise<TerminalSnapshot[]>
+  /** Spawn a new shell in the project's directory, sized to the given viewport. */
+  createTerminal(projectId: string, cols: number, rows: number): Promise<TerminalSnapshot>
+  /** Send keyboard input (or pasted text) to a terminal's shell. */
+  writeToTerminal(terminalId: string, data: string): Promise<void>
+  /** Notify the shell of a viewport resize. */
+  resizeTerminal(terminalId: string, cols: number, rows: number): Promise<void>
+  /** Kill the shell (if still alive) and forget the terminal. */
+  closeTerminal(terminalId: string): Promise<void>
 }
 
 /** Push events flowing from services to the UI. */
@@ -231,6 +247,10 @@ export interface TrackerEvents {
   'tasks-changed': { projectId: string; tasks: TaskDefinition[] }
   'run-updated': RunRecord
   'inbox-changed': InboxItem[]
+  /** A chunk of output the shell wrote; appended to the terminal's live buffer. */
+  'terminal-data': { terminalId: string; chunk: string }
+  /** The shell process exited (typed `exit`, crashed, or was killed externally). */
+  'terminal-exit': { terminalId: string; exitCode: number }
   /** Emitted when the user clicks a desktop notification; the UI should navigate. */
   navigate: {
     projectId: string

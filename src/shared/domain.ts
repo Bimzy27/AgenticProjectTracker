@@ -830,3 +830,29 @@ export interface AboutInfo {
   appVersion: string
   usage: ClaudeUsage
 }
+
+// ---------- Terminals ----------
+
+/**
+ * A live or recently-exited PTY-backed shell instance in a project's
+ * Terminals tab. Unlike a Session, the app does not parse what runs inside
+ * it; it is a raw, unmanaged terminal for ad hoc work (an interactive claude
+ * REPL, nvim, or any CLI command).
+ */
+export interface TerminalSnapshot {
+  id: string
+  projectId: string
+  /** Auto-assigned display label, e.g. "Terminal 1"; not user-editable. */
+  title: string
+  createdAt: string
+  /** False once the underlying shell process has exited. */
+  alive: boolean
+  /** Exit code once the process has exited; null while alive. */
+  exitCode: number | null
+  /**
+   * Output emitted since creation (capped to a recent window), replayed into
+   * a freshly (re)mounted terminal view so switching tabs or projects and
+   * coming back reconstructs the same on-screen state.
+   */
+  buffer: string
+}
