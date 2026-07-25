@@ -1349,6 +1349,39 @@ label.form-row {
   opacity: 0.7;
 }
 
+.github-issues-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.github-issues-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.github-issues-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.github-issue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.github-issue-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
 .form-row input[type='number'] {
   flex: 0 0 auto;
   width: 90px;

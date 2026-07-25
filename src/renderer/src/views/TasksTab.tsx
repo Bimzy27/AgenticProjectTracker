@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  GithubIssue,
   Project,
   ProjectStatusSummary,
   RunRecord,
@@ -138,6 +139,7 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
             ⎇ {branch ?? '…'}
           </span>
         </div>
+        {project.github && <GithubIssuesPanel project={project} tasks={tasks} onAction={act} />}
         <div className="toolbar task-view-controls">
           <input
             type="search"
@@ -340,6 +342,17 @@ function TaskDetail({
               <span className="badge attention" title="Workspace quality-gate skills were not detected">
                 unverified workflow
               </span>
+            )}
+            {task.sourceIssueUrl && (
+              <a
+                className="badge"
+                href={task.sourceIssueUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`Imported from ${task.sourceIssueUrl}`}
+              >
+                ⎘ GitHub issue
+              </a>
             )}
           </div>
         </div>
@@ -810,5 +823,99 @@ function TaskDialog({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Collapsible list of the linked repo's open GitHub issues, each importable
+ * into the backlog as a draft task with one click. `tasks` is the project's
+ * full (unfiltered) task list so already-imported issues (matched by
+ * TaskDefinition.sourceIssueUrl) show as already in the backlog instead of
+ * offering a second import.
+ */
+function GithubIssuesPanel({
+  project,
+  tasks,
+  onAction
+}: {
+  project: Project
+  tasks: TaskDefinition[]
+  onAction: (fn: () => Promise<unknown>) => void
+}): React.JSX.Element {
+  const [issues, setIssues] = useState<GithubIssue[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [importingNumber, setImportingNumber] = useState<number | null>(null)
+
+  const load = useCallback(() => {
+    tracker
+      .invoke('listGithubIssues', project.id)
+      .then((data) => {
+        setIssues(data)
+        setLoadError(null)
+      })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)))
+  }, [project.id])
+  useEffect(load, [load])
+
+  const importedUrls = new Set(
+    tasks.map((t) => t.sourceIssueUrl).filter((url): url is string => url !== null)
+  )
+
+  const importIssue = (issue: GithubIssue): void => {
+    setImportingNumber(issue.number)
+    onAction(() =>
+      tracker.invoke('importGithubIssue', project.id, issue.number).finally(() => setImportingNumber(null))
+    )
+  }
+
+  return (
+    <details className="github-issues-panel">
+      <summary>GitHub Issues{issues ? ` (${issues.length})` : ''}</summary>
+      <div className="github-issues-body">
+        <div className="toolbar">
+          <button
+            className="refresh"
+            title="Refresh open issues from GitHub"
+            onClick={(e) => {
+              e.preventDefault()
+              load()
+            }}
+          >
+            ↻ Refresh
+          </button>
+        </div>
+        {loadError && (
+          <div className="error-text">
+            {loadError.includes('No GitHub token configured')
+              ? 'GitHub issues need a token. Configure one in Settings.'
+              : loadError}
+          </div>
+        )}
+        {issues === null && !loadError && <div className="empty-state">Loading issues…</div>}
+        {issues !== null && issues.length === 0 && <div className="empty-state">No open issues.</div>}
+        {issues?.map((issue) => {
+          const imported = importedUrls.has(issue.url)
+          return (
+            <div key={issue.number} className="github-issue-row">
+              <a
+                className="github-issue-title"
+                href={issue.url}
+                target="_blank"
+                rel="noreferrer"
+                title={issue.url}
+              >
+                #{issue.number} {issue.title}
+              </a>
+              <button
+                disabled={imported || importingNumber === issue.number}
+                onClick={() => importIssue(issue)}
+              >
+                {imported ? 'In backlog' : importingNumber === issue.number ? 'Adding…' : '+ Add to backlog'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </details>
   )
 }

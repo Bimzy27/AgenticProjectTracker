@@ -142,6 +142,24 @@ describe('TaskService', () => {
     expect(reloaded.getOrThrow(task.id).autoApprove).toBe(false)
   })
 
+  it('stores the source issue url when provided, defaulting to null otherwise', () => {
+    const imported = service.create('p1', { ...input, sourceIssueUrl: 'https://github.com/me/demo/issues/1' })
+    expect(imported.sourceIssueUrl).toBe('https://github.com/me/demo/issues/1')
+
+    const direct = service.create('p1', input)
+    expect(direct.sourceIssueUrl).toBeNull()
+  })
+
+  it('defaults sourceIssueUrl for tasks persisted before GitHub issue import existed', () => {
+    const task = service.create('p1', input)
+    const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))
+    for (const stored of file.tasks) delete stored.sourceIssueUrl
+    writeFileSync(join(userData, 'tasks.json'), JSON.stringify(file), 'utf8')
+
+    const reloaded = new TaskService(userData, sink as TaskEventSink)
+    expect(reloaded.getOrThrow(task.id).sourceIssueUrl).toBeNull()
+  })
+
   it('defaults the model for tasks persisted before model selection existed', () => {
     const task = service.create('p1', input)
     const file = JSON.parse(readFileSync(join(userData, 'tasks.json'), 'utf8'))

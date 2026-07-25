@@ -14,6 +14,7 @@ import type { ActiveTasksService } from './services/ActiveTasksService'
 import type { AnalyticsService } from './services/AnalyticsService'
 import type { EditorService } from './services/EditorService'
 import type { GithubClient } from './services/GithubClient'
+import type { GithubIssuesService } from './services/GithubIssuesService'
 import type { GitService } from './services/GitService'
 import type { InboxService } from './services/InboxService'
 import type { PipelineService } from './services/PipelineService'
@@ -41,6 +42,7 @@ export interface ApiDeps {
   pipelines: PipelineService
   analytics: AnalyticsService
   github: GithubClient
+  githubIssues: GithubIssuesService
   tokens: TokenStore
   vercelTokens: VercelTokenStore
   editor: EditorService
@@ -158,6 +160,11 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
       deps.orchestrator.sendBack(taskId, feedback),
     pauseTask: async (_projectId: string, taskId: string) => deps.orchestrator.pause(taskId),
     requeueTask: async (_projectId: string, taskId: string) => deps.orchestrator.requeue(taskId),
+
+    // GitHub issues
+    listGithubIssues: async (projectId: string) => deps.githubIssues.list(deps.store.getOrThrow(projectId)),
+    importGithubIssue: async (projectId: string, issueNumber: number) =>
+      deps.githubIssues.import(deps.store.getOrThrow(projectId), issueNumber),
 
     // Release publishing
     getReleasePreview: async (projectId: string) => deps.release.getPreview(deps.store.getOrThrow(projectId)),

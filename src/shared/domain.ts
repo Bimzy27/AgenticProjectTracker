@@ -302,6 +302,13 @@ export interface TaskDefinition {
    * The task can still be delegated manually at any time.
    */
   loopEnabled: boolean
+  /**
+   * Link to the GitHub issue this task was imported from (see
+   * GithubIssuesService.import), or null for tasks created directly. Set
+   * once at creation and never changed afterward; lets importing the same
+   * issue twice return the existing task instead of creating a duplicate.
+   */
+  sourceIssueUrl: string | null
   createdAt: string
   updatedAt: string
   transitions: TaskTransition[]
@@ -318,6 +325,12 @@ export interface TaskInput {
   autoApprove?: boolean
   /** Loop participation (see TaskDefinition.loopEnabled); defaults to true. */
   loopEnabled?: boolean
+  /**
+   * Set when this task is being created from an imported GitHub issue (see
+   * GithubIssuesService.import); omitted for tasks created directly through
+   * the New Task dialog.
+   */
+  sourceIssueUrl?: string | null
 }
 
 export interface TaskPatch {
@@ -635,6 +648,25 @@ export interface GithubAuthState {
 /** Vercel access token configuration state; storage mirrors GithubAuthState but has no CLI import. */
 export interface VercelAuthState {
   configured: boolean
+}
+
+// ---------- GitHub issues ----------
+
+/**
+ * An open issue from a project's linked GitHub repo, normalized for display
+ * and import into the task backlog (see GithubIssuesService in main). Pull
+ * requests are excluded by the main-process fetch, not by this shape.
+ */
+export interface GithubIssue {
+  number: number
+  title: string
+  /** Markdown body as GitHub stores it; null when the issue has no description. */
+  body: string | null
+  /** Link to the issue on github.com. */
+  url: string
+  author: string | null
+  labels: string[]
+  updatedAt: string
 }
 
 // ---------- App settings ----------

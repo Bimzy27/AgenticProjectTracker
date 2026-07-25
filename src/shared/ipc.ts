@@ -11,6 +11,7 @@ import type {
   DirectoryInspection,
   EditorLaunchResult,
   GithubAuthState,
+  GithubIssue,
   InboxItem,
   PipelineKind,
   PipelineLogs,
@@ -121,6 +122,17 @@ export interface TrackerApi {
   pauseTask(projectId: string, taskId: string): Promise<void>
   /** Return a paused task to the queue; a parked run resumes where it left off once a slot is free. */
   requeueTask(projectId: string, taskId: string): Promise<TaskDefinition>
+
+  // GitHub issues
+  /** Open issues (pull requests excluded) from the project's linked repo, most recently updated first. */
+  listGithubIssues(projectId: string): Promise<GithubIssue[]>
+  /**
+   * Import one open issue into the task backlog as a draft task titled and
+   * briefed from the issue. Idempotent: importing an issue already present
+   * in the backlog (matched by GithubIssue.url) returns the existing task
+   * instead of creating a duplicate.
+   */
+  importGithubIssue(projectId: string, issueNumber: number): Promise<TaskDefinition>
 
   // Release publishing
   /**

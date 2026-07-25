@@ -80,6 +80,7 @@ export class TaskService {
       reviewFeedback: null,
       archived: false,
       loopEnabled: input.loopEnabled ?? true,
+      sourceIssueUrl: input.sourceIssueUrl ?? null,
       createdAt: now,
       updatedAt: now,
       transitions: [{ state: 'draft', at: now }]
@@ -229,11 +230,12 @@ export class TaskService {
     }
     const parsed = JSON.parse(raw) as {
       tasks?: Array<
-        Omit<TaskDefinition, 'archived' | 'model' | 'autoApprove' | 'loopEnabled'> & {
+        Omit<TaskDefinition, 'archived' | 'model' | 'autoApprove' | 'loopEnabled' | 'sourceIssueUrl'> & {
           archived?: boolean
           model?: string | null
           autoApprove?: boolean
           loopEnabled?: boolean
+          sourceIssueUrl?: string | null
         }
       >
     }
@@ -241,14 +243,16 @@ export class TaskService {
     // Migrations: files written before archiving existed lack the flag (done
     // tasks are swept into the archive to match the auto-archive-on-completion
     // rule), files written before model selection default to the CLI model,
-    // files written before auto-approve default to requiring manual review, and
-    // files written before loop participation default to being picked up.
+    // files written before auto-approve default to requiring manual review,
+    // files written before loop participation default to being picked up, and
+    // files written before GitHub issue import existed have no source issue.
     this.tasks = stored.map((t) => ({
       ...t,
       archived: t.archived ?? t.state === 'done',
       model: t.model ?? null,
       autoApprove: t.autoApprove ?? false,
-      loopEnabled: t.loopEnabled ?? true
+      loopEnabled: t.loopEnabled ?? true,
+      sourceIssueUrl: t.sourceIssueUrl ?? null
     }))
   }
 

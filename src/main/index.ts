@@ -20,6 +20,7 @@ import { VercelAnalyticsProvider } from './services/VercelAnalyticsProvider'
 import { VercelPipelineProvider } from './services/VercelPipelineProvider'
 import { createFakeAgentQuery } from './services/FakeAgentQuery'
 import { GithubClient } from './services/GithubClient'
+import { GithubIssuesService } from './services/GithubIssuesService'
 import { GitService } from './services/GitService'
 import { InboxService } from './services/InboxService'
 import { PipelineService } from './services/PipelineService'
@@ -178,6 +179,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     process.env.APT_GITHUB_API
   )
   const vercelTokens = new VercelTokenStore(userDataDir, cipher)
+  const githubIssues = new GithubIssuesService(github, tasks)
 
   // APT_PIPELINE_POLL_MS is a test seam; unset (or invalid) falls back to the
   // production poll interval so E2E runs can drive status transitions quickly.
@@ -276,6 +278,7 @@ function composeServices(): { pipelines: PipelineService; watchers: Watchers; st
     pipelines,
     analytics,
     github,
+    githubIssues,
     tokens,
     vercelTokens,
     editor,
