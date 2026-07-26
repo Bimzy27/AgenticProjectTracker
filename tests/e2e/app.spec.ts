@@ -223,6 +223,18 @@ test('release tab warns when work after the last tag sits uncommitted', async ()
   await expect(page.getByText(/uncommitted changes/)).toBeVisible()
 })
 
+test('a visited project tab stays mounted so returning to it is instant', async () => {
+  // Diffs, Sessions, Pipelines and Release were all visited above. Each keeps
+  // its panel in the DOM rather than being unmounted on the way out, so coming
+  // back neither refetches nor flashes a loading state (ADR 0005).
+  expect(await page.locator('.tab-panel').count()).toBeGreaterThan(1)
+  await expect(page.locator('.tab-panel:not(.tab-panel-hidden)')).toHaveCount(1)
+
+  // The one on screen is the one the tab bar says is active.
+  await page.getByRole('button', { name: 'Diffs' }).click()
+  await expect(page.locator('.tab-panel:not(.tab-panel-hidden) .diff-viewer')).toBeVisible()
+})
+
 test('settings shows the not-configured GitHub and Vercel auth states', async () => {
   await page.getByRole('button', { name: '⚙ Settings' }).click()
   await expect(page.getByText(/Status: not configured/)).toHaveCount(2)

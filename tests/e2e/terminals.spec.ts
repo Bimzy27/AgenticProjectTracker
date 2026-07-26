@@ -117,6 +117,14 @@ test('terminals survive navigating away from and back to the Terminals tab', asy
   await expect(page.locator('.terminal-pane.active .xterm-rows')).toContainText('you said: hello')
 })
 
+test('only the active terminal has a mounted pane', async () => {
+  // Two shells are alive and listed...
+  await expect(page.locator('.terminal-subtab')).toHaveCount(2)
+  // ...but only the visible one has a view attached to it, so a background
+  // terminal costs no xterm instance of its own.
+  await expect(page.locator('.terminal-pane')).toHaveCount(1)
+})
+
 test('output produced while a terminal is not on screen is replayed on return', async () => {
   // Only the active terminal has a mounted view, so a background shell's output
   // is buffered in the main process; coming back must show it, not lose it -
