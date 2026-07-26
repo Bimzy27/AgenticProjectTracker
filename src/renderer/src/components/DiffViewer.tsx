@@ -1,45 +1,7 @@
-import { useMemo, useState } from 'react'
-import hljs from 'highlight.js/lib/core'
-import bash from 'highlight.js/lib/languages/bash'
-import c from 'highlight.js/lib/languages/c'
-import cpp from 'highlight.js/lib/languages/cpp'
-import csharp from 'highlight.js/lib/languages/csharp'
-import css from 'highlight.js/lib/languages/css'
-import go from 'highlight.js/lib/languages/go'
-import ini from 'highlight.js/lib/languages/ini'
-import java from 'highlight.js/lib/languages/java'
-import javascript from 'highlight.js/lib/languages/javascript'
-import json from 'highlight.js/lib/languages/json'
-import markdown from 'highlight.js/lib/languages/markdown'
-import python from 'highlight.js/lib/languages/python'
-import rust from 'highlight.js/lib/languages/rust'
-import sql from 'highlight.js/lib/languages/sql'
-import typescript from 'highlight.js/lib/languages/typescript'
-import xml from 'highlight.js/lib/languages/xml'
-import yaml from 'highlight.js/lib/languages/yaml'
+import { useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import type { DiffFile, DiffLine, FileChangeType } from '@shared/domain'
-
-for (const [name, language] of Object.entries({
-  bash,
-  c,
-  cpp,
-  csharp,
-  css,
-  go,
-  ini,
-  java,
-  javascript,
-  json,
-  markdown,
-  python,
-  rust,
-  sql,
-  typescript,
-  xml,
-  yaml
-})) {
-  hljs.registerLanguage(name, language)
-}
+import { highlightHunk, languageFor } from './diffHighlight'
 
 const CHANGE_LABEL: Record<FileChangeType, string> = {
   added: 'A',
@@ -48,9 +10,31 @@ const CHANGE_LABEL: Record<FileChangeType, string> = {
   renamed: 'R'
 }
 
+/**
+ * Starting guess for a row's height before it is measured. Rows wrap, so real
+ * heights vary; this only has to be close enough that the initial scrollbar is
+ * not wildly wrong.
+ */
+const ESTIMATED_ROW_HEIGHT = 18
+
+/** Rows kept mounted outside the viewport, so scrolling does not flash blanks. */
+const OVERSCAN = 24
+
 interface Props {
   files: DiffFile[]
 }
+
+/** One rendered row: hunk headers share the virtual list with their lines. */
+type DiffRow =
+  | { kind: 'header'; header: string }
+  | { kind: 'unified'; line: DiffLine; html: string | null }
+  | {
+      kind: 'split'
+      left: DiffLine | null
+      leftHtml: string | null
+      right: DiffLine | null
+      rightHtml: string | null
+    }
 
 /** Categorized diff browser: directory groups, change badges, per-file diff (task 3.3). */
 export function DiffViewer({ files }: Props): React.JSX.Element {
@@ -119,10 +103,15 @@ export function DiffViewer({ files }: Props): React.JSX.Element {
             </div>
             {selectedFile.binary ? (
               <div className="empty-state">Binary file, no text diff.</div>
-            ) : split ? (
-              <SplitDiff file={selectedFile} />
             ) : (
-              <UnifiedDiff file={selectedFile} />
+              // Keyed so switching file or mode starts a fresh scroll and a
+              // fresh set of row measurements rather than inheriting the last
+              // file's.
+              <FileDiff
+                key={`${fileKey(selectedFile)}:${split ? 'split' : 'unified'}`}
+                file={selectedFile}
+                split={split}
+              />
             )}
           </>
         )}
@@ -131,76 +120,110 @@ export function DiffViewer({ files }: Props): React.JSX.Element {
   )
 }
 
-function UnifiedDiff({ file }: { file: DiffFile }): React.JSX.Element {
-  const language = languageFor(file.path)
-  return (
-    <div className="diff-code">
-      {file.hunks.map((hunk, hi) => (
-        <div key={hi}>
-          <div className="hunk-header">{hunk.header}</div>
-          <table className="diff-table">
-            <tbody>
-              {hunk.lines.map((line, li) => (
-                <tr key={li} className={`line-${line.kind}`}>
-                  <td className="lineno">{line.oldLineNo ?? ''}</td>
-                  <td className="lineno">{line.newLineNo ?? ''}</td>
-                  <td className="sign">{line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}</td>
-                  <td className="code">
-                    <Highlighted text={line.text} language={language} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
-  )
-}
+/**
+ * The selected file's diff, windowed: only rows near the viewport are in the
+ * DOM, so a large diff costs the same as a small one to render. Row heights are
+ * measured rather than assumed because code lines wrap.
+ */
+function FileDiff({ file, split }: { file: DiffFile; split: boolean }): React.JSX.Element {
+  const rows = useMemo(() => (split ? buildSplitRows(file) : buildUnifiedRows(file)), [file, split])
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-function SplitDiff({ file }: { file: DiffFile }): React.JSX.Element {
-  const language = languageFor(file.path)
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: OVERSCAN
+  })
+
   return (
-    <div className="diff-code">
-      {file.hunks.map((hunk, hi) => {
-        const rows = pairLines(hunk.lines)
-        return (
-          <div key={hi}>
-            <div className="hunk-header">{hunk.header}</div>
-            <table className="diff-table split">
-              <tbody>
-                {rows.map(([left, right], ri) => (
-                  <tr key={ri}>
-                    <td className="lineno">{left?.oldLineNo ?? ''}</td>
-                    <td className={`code half ${left ? `line-${left.kind}` : 'line-empty'}`}>
-                      {left && <Highlighted text={left.text} language={language} />}
-                    </td>
-                    <td className="lineno">{right?.newLineNo ?? ''}</td>
-                    <td className={`code half ${right ? `line-${right.kind}` : 'line-empty'}`}>
-                      {right && <Highlighted text={right.text} language={language} />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <div className="diff-code" ref={scrollRef}>
+      <div className="diff-rows" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((item) => (
+          <div
+            key={item.key}
+            data-index={item.index}
+            ref={virtualizer.measureElement}
+            className="diff-row-slot"
+            style={{ transform: `translateY(${item.start}px)` }}
+          >
+            <DiffRowView row={rows[item.index]} />
           </div>
-        )
-      })}
+        ))}
+      </div>
     </div>
   )
 }
 
-function Highlighted({ text, language }: { text: string; language: string | null }): React.JSX.Element {
-  const html = useMemo(() => {
-    if (!language || !text) return null
-    try {
-      return hljs.highlight(text, { language, ignoreIllegals: true }).value
-    } catch {
-      return null
-    }
-  }, [text, language])
+function DiffRowView({ row }: { row: DiffRow }): React.JSX.Element {
+  if (row.kind === 'header') return <div className="hunk-header">{row.header}</div>
+
+  if (row.kind === 'split') {
+    const { left, leftHtml, right, rightHtml } = row
+    return (
+      <div className="diff-row diff-row-split">
+        <span className="lineno">{left?.oldLineNo ?? ''}</span>
+        <span className={`code half ${left ? `line-${left.kind}` : 'line-empty'}`}>
+          {left && <Code text={left.text} html={leftHtml} />}
+        </span>
+        <span className="lineno">{right?.newLineNo ?? ''}</span>
+        <span className={`code half ${right ? `line-${right.kind}` : 'line-empty'}`}>
+          {right && <Code text={right.text} html={rightHtml} />}
+        </span>
+      </div>
+    )
+  }
+
+  const { line, html } = row
+  return (
+    <div className={`diff-row line-${line.kind}`}>
+      <span className="lineno">{line.oldLineNo ?? ''}</span>
+      <span className="lineno">{line.newLineNo ?? ''}</span>
+      <span className="sign">{line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}</span>
+      <span className="code">
+        <Code text={line.text} html={html} />
+      </span>
+    </div>
+  )
+}
+
+/** Pre-highlighted markup when the language is known, otherwise the raw text. */
+function Code({ text, html }: { text: string; html: string | null }): React.JSX.Element {
   if (html === null) return <span>{text}</span>
   return <span dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+function buildUnifiedRows(file: DiffFile): DiffRow[] {
+  const language = languageFor(file.path)
+  const rows: DiffRow[] = []
+  for (const hunk of file.hunks) {
+    rows.push({ kind: 'header', header: hunk.header })
+    const highlighted = highlightHunk(hunk, language)
+    hunk.lines.forEach((line, i) => {
+      rows.push({ kind: 'unified', line, html: highlighted[i] ?? null })
+    })
+  }
+  return rows
+}
+
+function buildSplitRows(file: DiffFile): DiffRow[] {
+  const language = languageFor(file.path)
+  const rows: DiffRow[] = []
+  for (const hunk of file.hunks) {
+    rows.push({ kind: 'header', header: hunk.header })
+    const highlighted = highlightHunk(hunk, language)
+    const htmlFor = new Map(hunk.lines.map((line, i) => [line, highlighted[i] ?? null]))
+    for (const [left, right] of pairLines(hunk.lines)) {
+      rows.push({
+        kind: 'split',
+        left,
+        leftHtml: left ? (htmlFor.get(left) ?? null) : null,
+        right,
+        rightHtml: right ? (htmlFor.get(right) ?? null) : null
+      })
+    }
+  }
+  return rows
 }
 
 /** Pair del/add runs into side-by-side rows. */
@@ -247,33 +270,4 @@ function baseName(path: string): string {
 
 function fileKey(file: DiffFile): string {
   return `${file.area ?? 'ref'}:${file.path}`
-}
-
-const EXT_LANGUAGES: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'typescript',
-  js: 'javascript',
-  jsx: 'javascript',
-  json: 'json',
-  css: 'css',
-  html: 'xml',
-  md: 'markdown',
-  py: 'python',
-  rs: 'rust',
-  go: 'go',
-  java: 'java',
-  cs: 'csharp',
-  cpp: 'cpp',
-  c: 'c',
-  h: 'c',
-  sh: 'bash',
-  yml: 'yaml',
-  yaml: 'yaml',
-  toml: 'ini',
-  sql: 'sql'
-}
-
-function languageFor(path: string): string | null {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
-  return EXT_LANGUAGES[ext] ?? null
 }

@@ -543,17 +543,21 @@ select:focus {
 
 .diff-detail {
   flex: 1;
-  overflow: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 220px);
+  /* The windowed row list below owns scrolling, so the header can stay put
+     without needing position: sticky. */
+  overflow: hidden;
 }
 .diff-detail-header {
+  flex: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
   background: var(--bg-panel);
 }
 .hunk-header {
@@ -563,41 +567,57 @@ select:focus {
   font-family: Consolas, monospace;
   font-size: 12px;
 }
-.diff-table {
-  border-collapse: collapse;
+/* Scroll container for the virtualized rows. */
+.diff-code {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* Spacer sized to the full row list; rows are positioned inside it. */
+.diff-rows {
+  position: relative;
   width: 100%;
 }
-.diff-table td {
-  padding: 0 6px;
-  vertical-align: top;
+.diff-row-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
-.diff-table .lineno {
+/* Grid rather than a table: a windowed list cannot rely on table layout to
+   line columns up, since only some rows exist at any moment. */
+.diff-row {
+  display: grid;
+  grid-template-columns: 40px 40px 14px minmax(0, 1fr);
+}
+.diff-row-split {
+  grid-template-columns: 40px minmax(0, 1fr) 40px minmax(0, 1fr);
+}
+.diff-row > * {
+  padding: 0 6px;
+}
+.diff-row .lineno {
   color: var(--text-muted);
   text-align: right;
   user-select: none;
-  width: 40px;
   font-family: Consolas, monospace;
   font-size: 11.5px;
 }
-.diff-table .sign {
-  width: 14px;
+.diff-row .sign {
   user-select: none;
   font-family: Consolas, monospace;
 }
-.diff-table .code {
+.diff-row .code {
   white-space: pre-wrap;
   word-break: break-all;
   font-family: 'Cascadia Code', Consolas, monospace;
   font-size: 12.5px;
 }
-.diff-table .code.half {
-  width: 50%;
-}
-tr.line-add,
+.diff-row.line-add,
 .code.line-add {
   background: var(--add-bg);
 }
-tr.line-del,
+.diff-row.line-del,
 .code.line-del {
   background: var(--del-bg);
 }

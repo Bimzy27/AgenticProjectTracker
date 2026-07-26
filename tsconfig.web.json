@@ -22,6 +22,7 @@
     "src/renderer/src/**/*.ts",
     "src/renderer/src/**/*.tsx",
     "src/shared/**/*.ts",
-    "src/preload/api.d.ts"
+    "src/preload/api.d.ts",
+    "tests/renderer/**/*.ts"
   ]
 }

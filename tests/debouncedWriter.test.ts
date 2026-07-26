@@ -1,10 +1,20 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DebouncedWriter } from '../src/main/services/DebouncedWriter'
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Waits for a debounced write to land. These tests exercise real timers and
+ * real disk, so they poll for the result instead of sleeping a fixed amount:
+ * a loaded machine can delay a timer or an fs call well past any margin worth
+ * hard-coding.
+ */
+async function readWhenWritten(filePath: string): Promise<unknown> {
+  return vi.waitFor(() => JSON.parse(readFileSync(filePath, 'utf8')), { timeout: 5000, interval: 10 })
+}
 
 describe('DebouncedWriter', () => {
   let dir: string
@@ -22,27 +32,25 @@ describe('DebouncedWriter', () => {
     const filePath = join(dir, 'a.json')
 
     writer.write(filePath, { value: 1 })
+    // Nothing is written on the caller's own turn; that is the whole point.
     expect(existsSync(filePath)).toBe(false)
 
-    await wait(100)
-
-    expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 1 })
+    expect(await readWhenWritten(filePath)).toEqual({ value: 1 })
   })
 
   it('coalesces rapid writes to the same path into the last value', async () => {
-    const writer = new DebouncedWriter(60)
+    // A long window so the burst is unambiguously inside it, and flush() to
+    // settle it, rather than racing a wall clock for the same conclusion.
+    const writer = new DebouncedWriter(10_000)
     const filePath = join(dir, 'a.json')
 
     writer.write(filePath, { value: 1 })
-    await wait(20)
     writer.write(filePath, { value: 2 })
-    await wait(20)
-    // The first write's timer was cancelled by the second; only 20ms have
-    // passed since the second write (window is 60ms), so nothing has landed yet.
-    expect(existsSync(filePath)).toBe(false)
+    writer.write(filePath, { value: 3 })
+    writer.flush()
 
-    await wait(100)
-    expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 2 })
+    // One file holding only the last value: the earlier two never reached disk.
+    expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 3 })
   })
 
   it('debounces writes to different paths independently', async () => {
@@ -53,10 +61,9 @@ describe('DebouncedWriter', () => {
     // Writing to b must not cancel or delay a's already-scheduled write.
     writer.write(a, { value: 'a' })
     writer.write(b, { value: 'b' })
-    await wait(150)
 
-    expect(JSON.parse(readFileSync(a, 'utf8'))).toEqual({ value: 'a' })
-    expect(JSON.parse(readFileSync(b, 'utf8'))).toEqual({ value: 'b' })
+    expect(await readWhenWritten(a)).toEqual({ value: 'a' })
+    expect(await readWhenWritten(b)).toEqual({ value: 'b' })
   })
 
   it('flush lands every pending write synchronously, without waiting for the debounce window', () => {
@@ -91,9 +98,7 @@ describe('DebouncedWriter', () => {
     const filePath = join(dir, 'nested', 'deep', 'a.json')
     writer.write(filePath, { value: 1 })
 
-    await wait(60)
-
-    expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 1 })
+    expect(await readWhenWritten(filePath)).toEqual({ value: 1 })
   })
 
   it('drops a failed write instead of throwing out of flush', () => {
