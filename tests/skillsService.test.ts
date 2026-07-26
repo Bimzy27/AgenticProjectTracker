@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -102,6 +102,32 @@ describe('SkillsService', () => {
 
     expect(entry.name).toBe('no-frontmatter')
     expect(entry.warning).toBe('Frontmatter is missing name and description')
+  })
+
+  it('follows a symlinked skill folder (e.g. an externally installed skill pack)', () => {
+    const realSkillDir = mkdtempSync(join(tmpdir(), 'apt-real-skill-'))
+    writeFileSync(
+      join(realSkillDir, 'SKILL.md'),
+      '---\nname: migrate-to-shoehorn\ndescription: Migrate tests to shoehorn.\n---\n'
+    )
+    const skillsDir = join(claudeHome, 'skills')
+    mkdirSync(skillsDir, { recursive: true })
+    const linkPath = join(skillsDir, 'migrate-to-shoehorn')
+    try {
+      symlinkSync(realSkillDir, linkPath, 'dir')
+    } catch (err) {
+      // Some CI/sandbox environments deny symlink creation without an elevated
+      // privilege (Windows SeCreateSymbolicLinkPrivilege); nothing to assert then.
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') return
+      throw err
+    }
+
+    const [entry] = service.list(projectPath).global
+
+    expect(entry.name).toBe('migrate-to-shoehorn')
+    expect(entry.warning).toBeNull()
+
+    rmSync(realSkillDir, { recursive: true, force: true })
   })
 
   it('ignores entries that are not directories or have no SKILL.md', () => {

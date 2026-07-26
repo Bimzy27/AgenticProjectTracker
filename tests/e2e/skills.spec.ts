@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
@@ -116,6 +116,25 @@ test('clicking a skill opens its raw SKILL.md source in a modal', async () => {
   await expect(modal).toContainText('repo-only/SKILL.md')
   await modal.getByRole('button', { name: 'Close' }).click()
   await expect(modal).toHaveCount(0)
+})
+
+test('shows a global skill installed as a symlinked folder (e.g. an external skill pack)', async () => {
+  const realSkillDir = mkdtempSync(join(tmpdir(), 'apt-e2e-symlinked-skill-'))
+  writeFileSync(
+    join(realSkillDir, 'SKILL.md'),
+    '---\nname: migrate-to-shoehorn\ndescription: Migrate tests to shoehorn.\n---\n'
+  )
+  try {
+    symlinkSync(realSkillDir, join(claudeHome, 'skills', 'migrate-to-shoehorn'), 'dir')
+  } catch (err) {
+    test.skip((err as NodeJS.ErrnoException).code === 'EPERM', 'no symlink privilege on this runner')
+    throw err
+  }
+
+  await page.locator('.refresh').click()
+  await expect(page.locator('.skill-node', { hasText: 'migrate-to-shoehorn' })).toBeVisible()
+
+  rmSync(realSkillDir, { recursive: true, force: true })
 })
 
 test('refresh re-scans the skill directories for changes made since the tab loaded', async () => {

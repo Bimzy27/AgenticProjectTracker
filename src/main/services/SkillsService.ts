@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ProjectSkills, SkillEntry } from '@shared/domain'
@@ -28,7 +29,7 @@ function readSkillsDir(dir: string): Array<Omit<SkillEntry, 'shadowed'>> {
   if (!existsSync(dir)) return []
   const entries: Array<Omit<SkillEntry, 'shadowed'>> = []
   for (const dirent of readdirSync(dir, { withFileTypes: true })) {
-    if (!dirent.isDirectory()) continue
+    if (!isDirectoryEntry(dir, dirent)) continue
     const skillMdPath = join(dir, dirent.name, 'SKILL.md')
     if (!existsSync(skillMdPath)) continue
     // A single unreadable/corrupt skill must not break the rest of the listing.
@@ -45,6 +46,23 @@ function readSkillsDir(dir: string): Array<Omit<SkillEntry, 'shadowed'>> {
     }
   }
   return entries.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * `Dirent.isDirectory()` reflects the entry's own type, not its target - a
+ * symlinked skill folder (as installed by e.g. Matt Pocock's skill packs)
+ * reports as neither directory nor file, so it must be resolved with `stat`
+ * to be recognized.
+ */
+function isDirectoryEntry(parentDir: string, dirent: Dirent): boolean {
+  if (dirent.isDirectory()) return true
+  if (!dirent.isSymbolicLink()) return false
+  try {
+    return statSync(join(parentDir, dirent.name)).isDirectory()
+  } catch {
+    // A broken symlink (target deleted) must not break the rest of the listing.
+    return false
+  }
 }
 
 function parseSkill(folderName: string, skillMdPath: string): Omit<SkillEntry, 'shadowed'> {
