@@ -9,10 +9,12 @@ import { DiffsTab } from './DiffsTab'
 import { PipelinesTab } from './PipelinesTab'
 import { ReleaseTab } from './ReleaseTab'
 import { SessionsTab } from './SessionsTab'
+import { SkillsTab } from './SkillsTab'
 import { TasksTab } from './TasksTab'
 import { TerminalsTab } from './TerminalsTab'
 
-export type ProjectTab = 'tasks' | 'diffs' | 'sessions' | 'terminals' | 'pipelines' | 'release' | 'analytics'
+export type ProjectTab =
+  'tasks' | 'diffs' | 'sessions' | 'terminals' | 'pipelines' | 'release' | 'analytics' | 'skills'
 
 const TABS: Array<{ id: ProjectTab; label: string }> = [
   { id: 'tasks', label: 'Tasks' },
@@ -21,7 +23,8 @@ const TABS: Array<{ id: ProjectTab; label: string }> = [
   { id: 'terminals', label: 'Terminals' },
   { id: 'pipelines', label: 'Pipelines' },
   { id: 'release', label: 'Release' },
-  { id: 'analytics', label: 'Analytics' }
+  { id: 'analytics', label: 'Analytics' },
+  { id: 'skills', label: 'Skills' }
 ]
 
 interface Props {
@@ -141,6 +144,7 @@ export function ProjectView({
       {tab === 'pipelines' && <PipelinesTab project={project} />}
       {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
       {tab === 'analytics' && <AnalyticsTab key={project.id} project={project} />}
+      {tab === 'skills' && <SkillsTab project={project} />}
       {editingLinks && <ProjectLinksDialog project={project} onClose={() => setEditingLinks(false)} />}
       {editingVercel && <ProjectVercelDialog project={project} onClose={() => setEditingVercel(false)} />}
     </div>

@@ -24,6 +24,7 @@ import type { ReleaseService } from './services/ReleaseService'
 import type { RunOrchestrator } from './services/RunOrchestrator'
 import type { SessionService } from './services/SessionService'
 import type { SettingsStore } from './services/SettingsStore'
+import type { SkillsService } from './services/SkillsService'
 import type { TaskService } from './services/TaskService'
 import type { TerminalService } from './services/TerminalService'
 import type { TokenStore } from './services/TokenStore'
@@ -50,6 +51,7 @@ export interface ApiDeps {
   usage: UsageService
   settings: SettingsStore
   terminals: TerminalService
+  skills: SkillsService
   /**
    * Applies a theme preference to the running app, injected by the
    * composition root (sets Electron's nativeTheme.themeSource, which flips
@@ -227,6 +229,9 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
     writeToTerminal: async (terminalId: string, data: string) => deps.terminals.write(terminalId, data),
     resizeTerminal: async (terminalId: string, cols: number, rows: number) =>
       deps.terminals.resize(terminalId, cols, rows),
-    closeTerminal: async (terminalId: string) => deps.terminals.close(terminalId)
+    closeTerminal: async (terminalId: string) => deps.terminals.close(terminalId),
+
+    // Skills
+    listProjectSkills: async (projectId: string) => deps.skills.list(deps.store.getOrThrow(projectId).path)
   }
 }

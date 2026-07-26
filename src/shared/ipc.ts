@@ -19,6 +19,7 @@ import type {
   PipelineStatusSummary,
   Project,
   ProjectPatch,
+  ProjectSkills,
   ProjectStatusSummary,
   RateLimitState,
   RefDiff,
@@ -233,6 +234,14 @@ export interface TrackerApi {
   resizeTerminal(terminalId: string, cols: number, rows: number): Promise<void>
   /** Kill the shell (if still alive) and forget the terminal. */
   closeTerminal(terminalId: string): Promise<void>
+
+  // Skills
+  /**
+   * Claude Code skills that apply to the project, grouped by scope tier
+   * (personal, then project). Read fresh from disk on every call; the UI
+   * re-fetches on demand rather than watching for filesystem changes.
+   */
+  listProjectSkills(projectId: string): Promise<ProjectSkills>
 }
 
 /** Push events flowing from services to the UI. */

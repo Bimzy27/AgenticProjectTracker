@@ -856,3 +856,44 @@ export interface TerminalSnapshot {
    */
   buffer: string
 }
+
+// ---------- Skills ----------
+
+/**
+ * One discovered Claude Code skill: a directory containing a SKILL.md.
+ * Frontmatter parsing is deliberately tolerant (SKILL.md is an undocumented
+ * convention), mirroring SessionStorage/RunProtocol: a broken skill is still
+ * listed, flagged via `warning`, rather than dropped.
+ */
+export interface SkillEntry {
+  /** Frontmatter `name`; falls back to the folder name when missing. */
+  name: string
+  /** Frontmatter `description`; empty string when missing. */
+  description: string
+  /** The skill's directory name, e.g. "domain-modeling". */
+  folderName: string
+  /** Raw SKILL.md content, shown verbatim in the source-viewer modal. */
+  content: string
+  /** Set when frontmatter was missing or incomplete; explains what's wrong. Null when the skill parsed cleanly. */
+  warning: string | null
+  /**
+   * True when a personal/global skill of the same name overrides this one
+   * (personal skills win over project skills per Claude Code's precedence
+   * rules, so a shadowed project skill never actually loads). Always false
+   * for global-tier entries.
+   */
+  shadowed: boolean
+}
+
+/**
+ * Skills discovered for a project, grouped by scope tier: broad to narrow,
+ * left to right (see docs/adr for why this is a display taxonomy, not an
+ * override-precedence ordering - personal skills actually win over project
+ * skills on a name collision, the opposite direction).
+ */
+export interface ProjectSkills {
+  /** From ~/.claude/skills (or APT_CLAUDE_HOME); applies to every project on this machine. */
+  global: SkillEntry[]
+  /** From <project.path>/.claude/skills, root only (no nested/monorepo dirs); applies to this project alone. */
+  project: SkillEntry[]
+}

@@ -32,6 +32,7 @@ import { SessionService } from './services/SessionService'
 import type { QueryFn } from './services/SessionService'
 import { SessionStorage } from './services/SessionStorage'
 import { SettingsStore } from './services/SettingsStore'
+import { SkillsService } from './services/SkillsService'
 import { TaskService } from './services/TaskService'
 import { TerminalService } from './services/TerminalService'
 import { TokenStore } from './services/TokenStore'
@@ -236,6 +237,9 @@ function composeServices(): {
     { testShellScript: process.env.APT_TEST_SHELL }
   )
 
+  // APT_CLAUDE_HOME is a test seam; undefined falls back to ~/.claude
+  const skills = new SkillsService(process.env.APT_CLAUDE_HOME)
+
   const editor = new EditorService({
     // APT_TEST_EDITOR_CMD is a test seam: treat this executable as VS Code
     // so E2E runs never depend on (or launch) a real install.
@@ -300,6 +304,7 @@ function composeServices(): {
     usage,
     settings,
     terminals,
+    skills,
     applyTheme: (pref) => {
       nativeTheme.themeSource = pref
     },
