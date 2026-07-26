@@ -291,6 +291,57 @@ describe('PipelineService merging multiple providers', () => {
     const service = new PipelineService([github], store, sink as unknown as PipelineEventSink, 60_000)
     await expect(service.fetchLogs(project.id, 'github-actions', '1')).rejects.toThrow(/does not support/)
   })
+
+  it('polls providers concurrently instead of waiting for each to finish', async () => {
+    let inFlight = 0
+    let peakInFlight = 0
+    const release: Array<() => void> = []
+    const gate = () => async (): Promise<PipelinePoll> => {
+      inFlight++
+      peakInFlight = Math.max(peakInFlight, inFlight)
+      await new Promise<void>((resolve) => release.push(resolve))
+      inFlight--
+      return { runs: [], etag: null, notModified: false }
+    }
+    const service = new PipelineService(
+      [fakeProvider('github-actions', gate()), fakeProvider('vercel', gate())],
+      store,
+      sink as unknown as PipelineEventSink,
+      60_000
+    )
+
+    const tick = service.tick()
+    // Both providers entered their poll before either was allowed to finish:
+    // sequential polling could only ever reach 1.
+    await vi.waitFor(() => expect(release).toHaveLength(2))
+    expect(peakInFlight).toBe(2)
+    for (const resolve of release) resolve()
+    await tick
+  })
+
+  it('keeps polling other providers when one fails', async () => {
+    const failing = fakeProvider('github-actions', async () => {
+      throw new Error('github is down')
+    })
+    const healthy = fakeProvider('vercel', async () => ({
+      runs: [pipelineRun({ id: 'v1', pipeline: 'vercel' })],
+      etag: null,
+      notModified: false
+    }))
+    const service = new PipelineService(
+      [failing, healthy],
+      store,
+      sink as unknown as PipelineEventSink,
+      60_000
+    )
+
+    await service.tick()
+
+    // The healthy provider's run still landed, and the failure is surfaced
+    // rather than aborting the pass.
+    expect(service.getRuns(project.id).map((r) => r.id)).toEqual(['v1'])
+    expect(service.getSummary(project.id)?.error).toContain('github is down')
+  })
 })
 
 describe('summarize', () => {

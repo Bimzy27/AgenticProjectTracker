@@ -13,6 +13,13 @@ import type { ProjectStore } from './ProjectStore'
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 const MAX_BACKOFF_MS = 30 * 60_000
+
+/**
+ * Cap on provider polls in flight during one tick: enough to overlap network
+ * latency across projects, low enough not to burst against GitHub/Vercel rate
+ * limits when many projects are tracked.
+ */
+const MAX_CONCURRENT_POLLS = 4
 /** Statuses that should raise a desktop notification on transition. */
 const ATTENTION_STATUSES: ReadonlySet<RunStatus> = new Set(['failure', 'action_required'])
 
@@ -100,16 +107,24 @@ export class PipelineService {
     return provider.fetchLogs(project, runId)
   }
 
-  /** One scheduler pass: poll every configured provider whose next-poll time has arrived. */
+  /**
+   * One scheduler pass: poll every configured provider whose next-poll time has
+   * arrived. Polls run concurrently (bounded by MAX_CONCURRENT_POLLS) rather
+   * than one after another, so a tick's wall-clock cost stops scaling linearly
+   * with projects x providers; each provider keeps its own poll state, so
+   * concurrent polls never touch the same data.
+   */
   async tick(now: number = Date.now()): Promise<void> {
+    const due: Array<() => Promise<void>> = []
     for (const project of this.projects.list()) {
       for (const provider of this.providers) {
         if (!provider.isConfigured(project)) continue
         const providerState = this.providerStateFor(project.id, provider.kind)
         if (now < providerState.nextPollAt) continue
-        await this.pollOne(project, provider, providerState, now)
+        due.push(() => this.pollOne(project, provider, providerState, now))
       }
     }
+    await runWithConcurrency(due, MAX_CONCURRENT_POLLS)
   }
 
   private async pollOne(
@@ -239,4 +254,19 @@ function summarizeWithErrors(runs: PipelineRun[], projectState: ProjectPollState
     .map((s) => s.lastError)
     .filter((e): e is string => e !== null)
   return { ...summarize(runs), error: errors.length > 0 ? errors.join('; ') : null }
+}
+
+/**
+ * Run `tasks` with at most `limit` in flight, preserving no particular
+ * completion order. Tasks are expected to handle their own failures (see
+ * pollOne); a rejecting task would propagate and cancel the pass.
+ */
+async function runWithConcurrency(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      await tasks[next++]()
+    }
+  })
+  await Promise.all(workers)
 }
