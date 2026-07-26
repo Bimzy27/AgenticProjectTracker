@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Project, ProjectStatusSummary, ReleasePreview } from '@shared/domain'
 import { InfoTip } from '../components/InfoTip'
 import { formatRelativeTime, tracker, useTrackerEvent } from '../tracker'
+
+/** Window for coalescing bursts of task/diff events into one preview reload. */
+const RELOAD_DEBOUNCE_MS = 400
 
 interface Props {
   project: Project
@@ -42,23 +45,43 @@ export function ReleaseTab({ project, onOpenTask }: Props): React.JSX.Element {
   }, [project.id])
   useEffect(load, [load])
 
+  /**
+   * Coalesce event-driven reloads. The preview is derived on the main process
+   * from git (tag dates, commit walk) plus tasks, so it cannot be rebuilt from
+   * an event payload here - but the events themselves arrive in bursts (an
+   * agent run touches tasks many times a minute), and this tab stays mounted
+   * once visited (ADR 0005), so an undebounced reload would spawn repeated git
+   * work for a view the user may not even be looking at.
+   */
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleReload = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current)
+    reloadTimer.current = setTimeout(load, RELOAD_DEBOUNCE_MS)
+  }, [load])
+  useEffect(
+    () => () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+    },
+    []
+  )
+
   // New commits change the preview; publish-task state changes move the action panel.
   useTrackerEvent(
     'diff-changed',
     useCallback(
       (payload: { projectId: string }) => {
-        if (payload.projectId === project.id) load()
+        if (payload.projectId === project.id) scheduleReload()
       },
-      [project.id, load]
+      [project.id, scheduleReload]
     )
   )
   useTrackerEvent(
     'tasks-changed',
     useCallback(
       (payload: { projectId: string }) => {
-        if (payload.projectId === project.id) load()
+        if (payload.projectId === project.id) scheduleReload()
       },
-      [project.id, load]
+      [project.id, scheduleReload]
     )
   )
 

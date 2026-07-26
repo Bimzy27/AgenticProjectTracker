@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   GithubIssue,
   Project,
@@ -106,12 +106,23 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
     )
   )
 
+  // Filtering and sorting the whole backlog is the most expensive work this
+  // component does, so it must not rerun for unrelated state changes (opening
+  // a dialog, selecting a task). Declared before the loading early-return to
+  // keep the hook order stable.
+  const visible = useMemo(
+    () =>
+      tasks === null
+        ? []
+        : applyTaskListView(
+            tasks.filter((t) => (showArchived ? t.archived : !t.archived)),
+            view
+          ),
+    [tasks, showArchived, view]
+  )
+
   if (tasks === null) return <div className="empty-state">Loading tasks…</div>
 
-  const visible = applyTaskListView(
-    tasks.filter((t) => (showArchived ? t.archived : !t.archived)),
-    view
-  )
   const selected = tasks.find((t) => t.id === selectedId) ?? null
   // Position-based reordering only makes sense while the plain backlog order is shown.
   const manualOrder = !showArchived && isManualOrderView(view)
