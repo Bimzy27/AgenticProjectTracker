@@ -107,7 +107,7 @@ function composeServices(): {
   store: ProjectStore
   terminals: TerminalService
   /** Stores whose debounced writes must land before the app exits (ADR 0004). */
-  flushables: Array<{ flushPendingWrites(): Promise<void> }>
+  flushables: Array<{ flushPendingWrites(): void }>
 } {
   const userDataDir = app.getPath('userData')
 
@@ -395,24 +395,15 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
   })
 
-  // Run-history, project, and dashboard writes are debounced (ADR 0004); delay
-  // the actual quit until any pending write lands, so a graceful quit never
-  // loses the latest state. Bounded by a timeout so an unresponsive filesystem
-  // cannot hang shutdown.
-  const FLUSH_TIMEOUT_MS = 5000
-  let quitting = false
-  app.on('before-quit', (event) => {
-    if (quitting) return
-    event.preventDefault()
+  // Run-history, project, and dashboard writes are debounced (ADR 0004). Their
+  // flush is synchronous by design: deferring the quit on async I/O would let
+  // the process be killed (by Electron, the OS, or a test harness) before the
+  // write lands, which is exactly the state this is meant to protect.
+  app.on('before-quit', () => {
     pipelines.stop()
     void watchers.close()
     terminals.closeAll()
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS))
-    const flushed = Promise.all(flushables.map((f) => f.flushPendingWrites()))
-    void Promise.race([flushed, timeout]).finally(() => {
-      quitting = true
-      app.quit()
-    })
+    for (const flushable of flushables) flushable.flushPendingWrites()
   })
 })
 

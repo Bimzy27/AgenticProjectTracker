@@ -56,7 +56,7 @@ describe('DashboardStore', () => {
       secretsSet: []
     })
 
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new DashboardStore(dir, cipher)
     expect(reloaded.getWidgets('p1')).toEqual(saved)
   })
@@ -69,7 +69,7 @@ describe('DashboardStore', () => {
     expect(saved.secretsSet).toEqual(['token'])
     expect(JSON.stringify(saved)).not.toContain('hunter2')
 
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const raw = readFileSync(join(dir, 'dashboards.json'), 'utf8')
     expect(raw).not.toContain('hunter2')
     expect(store.getSecrets('p1', saved.id)).toEqual({ token: 'hunter2' })
@@ -108,7 +108,7 @@ describe('DashboardStore', () => {
       { kind: 'json-metric', title: null, config: {}, secrets: { token: 'hunter2' } }
     ])
     // Simulate an OS vault key change: same file, cipher that rejects old data.
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const rotated = new DashboardStore(dir, {
       isAvailable: () => true,
       encrypt: (text) => Buffer.from(`new:${text}`),
@@ -147,7 +147,7 @@ describe('DashboardStore', () => {
     store.setWidgets('p1', [{ kind: 'json-metric', title: null, config: {} }])
     store.deleteProject('p1')
     expect(store.getWidgets('p1')).toBeNull()
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     expect(new DashboardStore(dir, cipher).getWidgets('p1')).toBeNull()
   })
 
@@ -158,7 +158,7 @@ describe('DashboardStore', () => {
 
       expect(existsSync(join(dir, 'dashboards.json'))).toBe(false)
 
-      await store.flushPendingWrites()
+      store.flushPendingWrites()
       expect(existsSync(join(dir, 'dashboards.json'))).toBe(true)
     })
 
@@ -168,7 +168,7 @@ describe('DashboardStore', () => {
       store.setWidgets('p1', [{ kind: 'json-metric', title: 'second', config: {} }])
       store.setWidgets('p1', [{ kind: 'json-metric', title: 'third', config: {} }])
 
-      await store.flushPendingWrites()
+      store.flushPendingWrites()
 
       const reloaded = new DashboardStore(dir, cipher)
       expect(reloaded.getWidgets('p1')?.[0].title).toBe('third')

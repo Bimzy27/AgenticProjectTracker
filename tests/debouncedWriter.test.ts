@@ -59,17 +59,31 @@ describe('DebouncedWriter', () => {
     expect(JSON.parse(readFileSync(b, 'utf8'))).toEqual({ value: 'b' })
   })
 
-  it('flushAll lands every pending write immediately, without waiting for the debounce window', async () => {
+  it('flush lands every pending write synchronously, without waiting for the debounce window', () => {
     const writer = new DebouncedWriter(10_000)
     const a = join(dir, 'a.json')
     const b = join(dir, 'b.json')
     writer.write(a, { value: 'a' })
     writer.write(b, { value: 'b' })
 
-    await writer.flushAll()
+    writer.flush()
 
+    // Synchronous by contract: readable on the very next line, with no await.
     expect(JSON.parse(readFileSync(a, 'utf8'))).toEqual({ value: 'a' })
     expect(JSON.parse(readFileSync(b, 'utf8'))).toEqual({ value: 'b' })
+  })
+
+  it('flush also lands a write already in flight when it is called', async () => {
+    const writer = new DebouncedWriter(10)
+    const filePath = join(dir, 'a.json')
+    writer.write(filePath, { value: 'inflight' })
+
+    // Let the debounce fire so the async write has started but may not have
+    // settled, then flush as the quit path does.
+    await wait(15)
+    writer.flush()
+
+    expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 'inflight' })
   })
 
   it('creates the destination directory if it does not exist yet', async () => {
@@ -82,7 +96,7 @@ describe('DebouncedWriter', () => {
     expect(JSON.parse(readFileSync(filePath, 'utf8'))).toEqual({ value: 1 })
   })
 
-  it('drops a failed write instead of throwing or rejecting flushAll', async () => {
+  it('drops a failed write instead of throwing out of flush', () => {
     // A regular file where a directory is expected makes mkdir fail.
     const blocker = join(dir, 'blocker')
     writeFileSync(blocker, 'not a directory')
@@ -91,7 +105,7 @@ describe('DebouncedWriter', () => {
 
     writer.write(filePath, { value: 1 })
 
-    await expect(writer.flushAll()).resolves.toBeUndefined()
+    expect(() => writer.flush()).not.toThrow()
     expect(existsSync(filePath)).toBe(false)
   })
 })

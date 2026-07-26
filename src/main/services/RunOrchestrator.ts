@@ -129,9 +129,9 @@ export class RunOrchestrator {
     this.load()
   }
 
-  /** Land every debounced run write immediately; call before the app quits (see ADR 0004). */
-  flushPendingWrites(): Promise<void> {
-    return this.writer.flushAll()
+  /** Land every debounced run write synchronously; call before the app quits (see ADR 0004). */
+  flushPendingWrites(): void {
+    this.writer.flush()
   }
 
   /**

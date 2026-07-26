@@ -47,9 +47,9 @@ export class DashboardStore {
     this.load()
   }
 
-  /** Land any debounced write immediately; call before the app quits. */
-  flushPendingWrites(): Promise<void> {
-    return this.writer.flushAll()
+  /** Land any debounced write synchronously; call before the app quits. */
+  flushPendingWrites(): void {
+    this.writer.flush()
   }
 
   /** The project's stored layout, or null when it was never customized. */

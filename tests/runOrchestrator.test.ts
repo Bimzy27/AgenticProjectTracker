@@ -473,7 +473,7 @@ describe('RunOrchestrator', () => {
     expect(completed.completion!.changesUrl).toBe('https://github.com/o/r/pull/7')
 
     // Strip the fields from the persisted per-run file to simulate a release before they existed.
-    await orch.flushPendingWrites()
+    orch.flushPendingWrites()
     const runPath = join(userData, 'runs', `${completed.id}.json`)
     const persisted = JSON.parse(readFileSync(runPath, 'utf8'))
     delete persisted.run.completion.debugUrl
@@ -656,7 +656,7 @@ describe('RunOrchestrator', () => {
 
     // simulate a graceful restart: flush debounced writes (as before-quit does),
     // then load a fresh orchestrator over the same persisted state
-    await orch.flushPendingWrites()
+    orch.flushPendingWrites()
     const sessions2 = new FakeSessions()
     const orch2 = new RunOrchestrator(userData, tasks, sessions2, sink as RunEventSink, { claudeHome })
     orch2.restore()
@@ -969,7 +969,7 @@ describe('RunOrchestrator', () => {
       const runA = orch.latestRun(a.id)!
       const runB = orch.latestRun(b.id)!
 
-      await orch.flushPendingWrites()
+      orch.flushPendingWrites()
 
       expect(existsSync(join(userData, 'runs', `${runA.id}.json`))).toBe(true)
       expect(existsSync(join(userData, 'runs', `${runB.id}.json`))).toBe(true)
@@ -988,7 +988,7 @@ describe('RunOrchestrator', () => {
       // returns, nothing has hit disk yet.
       expect(existsSync(join(userData, 'runs', `${run.id}.json`))).toBe(false)
 
-      await orch.flushPendingWrites()
+      orch.flushPendingWrites()
       expect(existsSync(join(userData, 'runs', `${run.id}.json`))).toBe(true)
     })
 
@@ -1022,7 +1022,7 @@ describe('RunOrchestrator', () => {
       orch.delegate(corrupted.id)
       const goodRun = orch.latestRun(good.id)!
       const corruptedRun = orch.latestRun(corrupted.id)!
-      await orch.flushPendingWrites()
+      orch.flushPendingWrites()
 
       writeFileSync(join(userData, 'runs', `${corruptedRun.id}.json`), '{ not valid json')
 

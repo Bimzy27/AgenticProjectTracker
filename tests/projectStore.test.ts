@@ -34,7 +34,7 @@ describe('ProjectStore', () => {
 
   it('persists across instances (registry file survives reload)', async () => {
     store.add(input())
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.list()).toHaveLength(1)
     expect(reloaded.list()[0].github).toEqual({ owner: 'me', repo: 'demo' })
@@ -85,7 +85,7 @@ describe('ProjectStore', () => {
   it('persists important links across instances', async () => {
     const project = store.add(input())
     store.update(project.id, { links: [{ label: 'Docs', url: 'http://localhost:3000/docs' }] })
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.list()[0].links).toEqual([{ label: 'Docs', url: 'http://localhost:3000/docs' }])
   })
@@ -114,7 +114,7 @@ describe('ProjectStore', () => {
   it('defaults links for registry files written before links existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].links
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -157,7 +157,7 @@ describe('ProjectStore', () => {
   it('persists the Vercel link across instances', async () => {
     const project = store.add(input())
     store.update(project.id, { vercel: { projectId: 'prj_demo', teamId: 'team_x' } })
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).vercel).toEqual({ projectId: 'prj_demo', teamId: 'team_x' })
   })
@@ -165,7 +165,7 @@ describe('ProjectStore', () => {
   it('defaults the Vercel link for registry files written before it existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].vercel
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -180,7 +180,7 @@ describe('ProjectStore', () => {
   it('toggles looping mode via patch and persists it', async () => {
     const project = store.add(input())
     expect(store.update(project.id, { looping: true }).looping).toBe(true)
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).looping).toBe(true)
     expect(store.update(project.id, { looping: false }).looping).toBe(false)
@@ -189,7 +189,7 @@ describe('ProjectStore', () => {
   it('defaults looping off for registry files written before looping existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].looping
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -204,7 +204,7 @@ describe('ProjectStore', () => {
   it('toggles agent task creation via patch and persists it', async () => {
     const project = store.add(input())
     expect(store.update(project.id, { agentTaskCreation: true }).agentTaskCreation).toBe(true)
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).agentTaskCreation).toBe(true)
     expect(store.update(project.id, { agentTaskCreation: false }).agentTaskCreation).toBe(false)
@@ -213,7 +213,7 @@ describe('ProjectStore', () => {
   it('defaults agent task creation off for registry files written before it existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
-    await store.flushPendingWrites()
+    store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].agentTaskCreation
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -237,7 +237,7 @@ describe('ProjectStore', () => {
       // yet immediately after add() returns.
       expect(existsSync(join(dir, 'projects.json'))).toBe(false)
 
-      await store.flushPendingWrites()
+      store.flushPendingWrites()
       expect(existsSync(join(dir, 'projects.json'))).toBe(true)
     })
 
@@ -254,7 +254,7 @@ describe('ProjectStore', () => {
       store.update(project.id, { looping: false })
       store.update(project.id, { looping: true })
 
-      await store.flushPendingWrites()
+      store.flushPendingWrites()
 
       const reloaded = new ProjectStore(dir)
       expect(reloaded.getOrThrow(project.id).looping).toBe(true)
