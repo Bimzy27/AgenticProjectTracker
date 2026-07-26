@@ -14,7 +14,8 @@ import type { TerminalSnapshot } from '@shared/domain'
 const SCROLLBACK_CAP = 200_000
 
 export interface TerminalEventSink {
-  terminalData(terminalId: string, chunk: string): void
+  /** `endOffset` is the terminal's total emitted-character count including this chunk. */
+  terminalData(terminalId: string, chunk: string, endOffset: number): void
   terminalExit(terminalId: string, exitCode: number): void
 }
 
@@ -45,6 +46,13 @@ class LiveTerminal {
   alive = true
   exitCode: number | null = null
   private buffer = ''
+  /**
+   * Total characters ever emitted by this shell, never reset by scrollback
+   * trimming. Stamped on every data event and on each snapshot, so a pane
+   * attaching asynchronously can tell which chunks its replayed buffer
+   * already contains and drop them (see TerminalsTab).
+   */
+  private emitted = 0
 
   constructor(
     readonly projectId: string,
@@ -54,7 +62,7 @@ class LiveTerminal {
   ) {
     pty.onData((chunk) => {
       this.append(chunk)
-      sink.terminalData(this.id, chunk)
+      sink.terminalData(this.id, chunk, this.emitted)
     })
     pty.onExit(({ exitCode }) => {
       this.alive = false
@@ -64,6 +72,7 @@ class LiveTerminal {
   }
 
   private append(chunk: string): void {
+    this.emitted += chunk.length
     this.buffer += chunk
     if (this.buffer.length > SCROLLBACK_CAP) {
       this.buffer = this.buffer.slice(this.buffer.length - SCROLLBACK_CAP)
@@ -92,7 +101,8 @@ class LiveTerminal {
       createdAt: this.createdAt,
       alive: this.alive,
       exitCode: this.exitCode,
-      buffer: this.buffer
+      buffer: this.buffer,
+      bufferEndOffset: this.emitted
     }
   }
 }
@@ -147,6 +157,16 @@ export class TerminalService {
     return [...this.terminals.values()]
       .filter((terminal) => terminal.projectId === projectId)
       .map((terminal) => terminal.snapshot())
+  }
+
+  /**
+   * One terminal with its buffer as of now, or null when the id is unknown
+   * (it was closed). Lets a pane attaching to an already-running shell replay
+   * output produced while nothing was mounted, without re-reading every
+   * other terminal's buffer.
+   */
+  get(id: string): TerminalSnapshot | null {
+    return this.terminals.get(id)?.snapshot() ?? null
   }
 
   /** Send input to a terminal's shell; a no-op for an unknown or already-exited id. */

@@ -226,6 +226,12 @@ export interface TrackerApi {
    * buffered output so a (re)mounted Terminals tab can replay it.
    */
   listTerminals(projectId: string): Promise<TerminalSnapshot[]>
+  /**
+   * One terminal with its buffer as of now, or null once it has been closed.
+   * A pane mounting for a shell that was already running replays this rather
+   * than a snapshot captured when the tab first loaded (see ADR 0002).
+   */
+  getTerminal(terminalId: string): Promise<TerminalSnapshot | null>
   /** Spawn a new shell in the project's directory, sized to the given viewport. */
   createTerminal(projectId: string, cols: number, rows: number): Promise<TerminalSnapshot>
   /** Send keyboard input (or pasted text) to a terminal's shell. */
@@ -257,7 +263,12 @@ export interface TrackerEvents {
   'run-updated': RunRecord
   'inbox-changed': InboxItem[]
   /** A chunk of output the shell wrote; appended to the terminal's live buffer. */
-  'terminal-data': { terminalId: string; chunk: string }
+  /**
+   * `endOffset` is the terminal's total emitted-character count including this
+   * chunk, so a pane that replayed a snapshot can drop chunks the snapshot
+   * already covered (its bufferEndOffset).
+   */
+  'terminal-data': { terminalId: string; chunk: string; endOffset: number }
   /** The shell process exited (typed `exit`, crashed, or was killed externally). */
   'terminal-exit': { terminalId: string; exitCode: number }
   /** Emitted when the user clicks a desktop notification; the UI should navigate. */

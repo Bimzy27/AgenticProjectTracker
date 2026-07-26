@@ -140,9 +140,37 @@ describe('TerminalService', () => {
     const snapshot = service.create('proj-1', 'C:\\a', 80, 24)
     ptys[0].emitData('hello ')
     ptys[0].emitData('world')
-    expect(sink.terminalData).toHaveBeenNthCalledWith(1, snapshot.id, 'hello ')
-    expect(sink.terminalData).toHaveBeenNthCalledWith(2, snapshot.id, 'world')
+    // Each chunk carries the running emitted-character count, which a pane uses
+    // to drop chunks its replayed buffer already covered.
+    expect(sink.terminalData).toHaveBeenNthCalledWith(1, snapshot.id, 'hello ', 6)
+    expect(sink.terminalData).toHaveBeenNthCalledWith(2, snapshot.id, 'world', 11)
     expect(service.list('proj-1')[0].buffer).toBe('hello world')
+    expect(service.list('proj-1')[0].bufferEndOffset).toBe(11)
+  })
+
+  it('keeps the emitted-character count monotonic when scrollback is trimmed', () => {
+    const { service, ptys } = makeService()
+    service.create('proj-1', 'C:\\a', 80, 24)
+    // Well past the 200k cap, so the buffer is trimmed from the front.
+    ptys[0].emitData('x'.repeat(250_000))
+    const [snapshot] = service.list('proj-1')
+    // The buffer is capped, but the offset still counts everything ever emitted;
+    // otherwise a pane would replay and then re-apply chunks it already had.
+    expect(snapshot.buffer.length).toBeLessThan(250_000)
+    expect(snapshot.bufferEndOffset).toBe(250_000)
+  })
+
+  it('exposes one terminal with its current buffer, and null once closed', () => {
+    const { service, ptys } = makeService()
+    const snapshot = service.create('proj-1', 'C:\\a', 80, 24)
+    ptys[0].emitData('later output')
+
+    // A pane attaching after the fact must see output produced meanwhile,
+    // which the snapshot it was handed at list time would not contain.
+    expect(service.get(snapshot.id)?.buffer).toBe('later output')
+
+    service.close(snapshot.id)
+    expect(service.get(snapshot.id)).toBeNull()
   })
 
   it('caps the buffered scrollback so it does not grow without bound', () => {

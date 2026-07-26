@@ -43,6 +43,12 @@ test.beforeAll(async () => {
       "    process.stdout.write('bye\\r\\n')",
       '    process.exit(3)',
       '  }',
+      // Emits after a delay so a test can switch away and have this land while
+      // no pane is mounted for this shell.
+      "  if (line.trim() === 'delayed') {",
+      "    setTimeout(() => process.stdout.write('delayed output arrived\\r\\n'), 300)",
+      '    return',
+      '  }',
       '  process.stdout.write(`you said: ${line}\\r\\n`)',
       '})'
     ].join('\n')
@@ -109,6 +115,32 @@ test('terminals survive navigating away from and back to the Terminals tab', asy
   await expect(page.locator('.terminal-subtab', { hasText: 'Terminal 1' })).toBeVisible()
   await expect(page.locator('.terminal-subtab', { hasText: 'Terminal 2' })).toBeVisible()
   await expect(page.locator('.terminal-pane.active .xterm-rows')).toContainText('you said: hello')
+})
+
+test('output produced while a terminal is not on screen is replayed on return', async () => {
+  // Only the active terminal has a mounted view, so a background shell's output
+  // is buffered in the main process; coming back must show it, not lose it -
+  // and must show it exactly once, which is what catches a replay that
+  // double-applies chunks already covered by the buffer it replayed.
+  // Note: on Windows, ConPTY also repaints on the resize a mounting pane
+  // triggers, so this cannot by itself distinguish a stale replayed buffer
+  // from a fresh one; TerminalService's unit tests pin that.
+  await page.locator('.terminal-subtab', { hasText: 'Terminal 1' }).click()
+  await page.locator('.terminal-pane.active .terminal-surface').click()
+  await page.keyboard.type('delayed')
+  await page.keyboard.press('Enter')
+
+  // Switch away before the shell emits, and stay away until well after it has.
+  await page.locator('.terminal-subtab', { hasText: 'Terminal 2' }).click()
+  await expect(page.locator('.terminal-pane.active .xterm-rows')).not.toContainText('delayed output arrived')
+  await page.waitForTimeout(600)
+
+  await page.locator('.terminal-subtab', { hasText: 'Terminal 1' }).click()
+  const rows = page.locator('.terminal-pane.active .xterm-rows')
+  await expect(rows).toContainText('delayed output arrived')
+  // The earlier scrollback is still there, and the replay did not duplicate it.
+  await expect(rows).toContainText('you said: hello')
+  expect((await rows.textContent())?.match(/delayed output arrived/g)).toHaveLength(1)
 })
 
 test('an exited shell shows an exited banner instead of disappearing', async () => {

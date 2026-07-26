@@ -222,6 +222,7 @@ export function createTrackerApi(deps: ApiDeps): TrackerApi {
 
     // Terminals
     listTerminals: async (projectId: string) => deps.terminals.list(projectId),
+    getTerminal: async (terminalId: string) => deps.terminals.get(terminalId),
     createTerminal: async (projectId: string, cols: number, rows: number) => {
       const project = deps.store.getOrThrow(projectId)
       return deps.terminals.create(projectId, project.path, cols, rows)

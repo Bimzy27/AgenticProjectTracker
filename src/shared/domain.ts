@@ -855,6 +855,12 @@ export interface TerminalSnapshot {
    * coming back reconstructs the same on-screen state.
    */
   buffer: string
+  /**
+   * Total characters this terminal had emitted when the buffer was captured.
+   * A pane replaying the buffer drops any `terminal-data` chunk whose
+   * `endOffset` is at or below this, since the buffer already covers it.
+   */
+  bufferEndOffset: number
 }
 
 // ---------- Skills ----------

@@ -69,6 +69,8 @@ export function TerminalsTab({ project }: { project: Project }): React.JSX.Eleme
 
   if (terminals === null) return <div className="empty-state">Loading terminals…</div>
 
+  const activeTerminal = terminals.find((t) => t.id === activeId) ?? null
+
   return (
     <div className="terminals-tab">
       <div className="terminal-subtabs">
@@ -108,9 +110,13 @@ export function TerminalsTab({ project }: { project: Project }): React.JSX.Eleme
             No terminals open for this project. Click "+ New terminal" to start a shell here.
           </div>
         )}
-        {terminals.map((t) => (
-          <TerminalPane key={t.id} terminal={t} active={t.id === activeId} />
-        ))}
+        {/*
+          Only the active terminal is mounted (ADR 0002 already puts the PTY and
+          its scrollback in the main process, so a pane is an attachable view,
+          not the shell's owner). Keying by id makes switching a genuine
+          unmount/remount, which re-attaches and replays the buffer.
+        */}
+        {activeTerminal && <TerminalPane key={activeTerminal.id} terminal={activeTerminal} />}
       </div>
       {closing && (
         <div className="modal-backdrop" onClick={() => setClosing(null)}>
@@ -148,18 +154,23 @@ function readXtermTheme(): ITheme {
   }
 }
 
-function TerminalPane({
-  terminal,
-  active
-}: {
-  terminal: TerminalSnapshot
-  active: boolean
-}): React.JSX.Element {
+function TerminalPane({ terminal }: { terminal: TerminalSnapshot }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   // Latest alive flag for the onData closure, which is only created once at mount.
   const aliveRef = useRef(terminal.alive)
+  /**
+   * Attach state for the async replay below. Live chunks that arrive before the
+   * replayed buffer has been written are held here and applied afterwards, so
+   * output can never land out of order; `attachedOffset` then discards the ones
+   * the buffer already contained.
+   */
+  const attachRef = useRef<{ attached: boolean; queued: Array<{ chunk: string; endOffset: number }> }>({
+    attached: false,
+    queued: []
+  })
+  const attachedOffsetRef = useRef(0)
 
   useEffect(() => {
     aliveRef.current = terminal.alive
@@ -176,8 +187,30 @@ function TerminalPane({
     xtermRef.current = term
     fitRef.current = fit
 
-    // Replay buffered output once, at attach time; live output arrives via terminal-data.
-    if (terminal.buffer) term.write(terminal.buffer)
+    // Replay this shell's output as of now, once, at attach time; live output
+    // then arrives via terminal-data. Re-read rather than trusting the snapshot
+    // this pane was handed: a terminal keeps producing output in the main
+    // process while no pane is mounted for it, so the listTerminals copy goes
+    // stale as soon as another terminal is selected.
+    const attach = attachRef.current
+    const replay = (snapshot: Pick<TerminalSnapshot, 'buffer' | 'bufferEndOffset'>): void => {
+      if (attach.attached) return
+      attach.attached = true
+      attachedOffsetRef.current = snapshot.bufferEndOffset
+      if (snapshot.buffer) term.write(snapshot.buffer)
+      // Anything that streamed in while the fetch was in flight, minus what the
+      // buffer already covered.
+      for (const { chunk, endOffset } of attach.queued) {
+        if (endOffset > snapshot.bufferEndOffset) term.write(chunk)
+      }
+      attach.queued = []
+    }
+    void tracker
+      .invoke('getTerminal', terminal.id)
+      .then((current) => replay(current ?? terminal))
+      // The terminal was closed underneath us, or the call failed: fall back to
+      // the snapshot we already have rather than showing an empty pane.
+      .catch(() => replay(terminal))
 
     fit.fit()
     void tracker.invoke('resizeTerminal', terminal.id, term.cols, term.rows).catch(() => {})
@@ -212,20 +245,26 @@ function TerminalPane({
   useTrackerEvent(
     'terminal-data',
     useCallback(
-      (payload: { terminalId: string; chunk: string }) => {
+      (payload: { terminalId: string; chunk: string; endOffset: number }) => {
         if (payload.terminalId !== terminal.id) return
-        xtermRef.current?.write(payload.chunk)
+        const attach = attachRef.current
+        if (!attach.attached) {
+          attach.queued.push({ chunk: payload.chunk, endOffset: payload.endOffset })
+          return
+        }
+        // Ordering is guaranteed once attached; the offset check only matters
+        // for the replay hand-off above, but stays cheap insurance here.
+        if (payload.endOffset > attachedOffsetRef.current) xtermRef.current?.write(payload.chunk)
       },
       [terminal.id]
     )
   )
 
-  useEffect(() => {
-    if (active) fitRef.current?.fit()
-  }, [active])
-
+  // Only the active terminal is ever mounted, so this pane is always the
+  // visible one and `active` is implicit; the class stays for existing
+  // selectors (styles and E2E) that address the on-screen pane.
   return (
-    <div className={`terminal-pane ${active ? 'active' : ''}`}>
+    <div className="terminal-pane active">
       <div className="terminal-surface" ref={containerRef} />
       {!terminal.alive && <div className="terminal-exited-banner">Exited (code {terminal.exitCode})</div>}
     </div>

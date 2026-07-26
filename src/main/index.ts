@@ -234,7 +234,8 @@ function composeServices(): {
   // APT_TEST_SHELL is a test seam; undefined falls back to the real default shell.
   const terminals = new TerminalService(
     {
-      terminalData: (terminalId, chunk) => emitTrackerEvent('terminal-data', { terminalId, chunk }),
+      terminalData: (terminalId, chunk, endOffset) =>
+        emitTrackerEvent('terminal-data', { terminalId, chunk, endOffset }),
       terminalExit: (terminalId, exitCode) => emitTrackerEvent('terminal-exit', { terminalId, exitCode })
     },
     { testShellScript: process.env.APT_TEST_SHELL }
