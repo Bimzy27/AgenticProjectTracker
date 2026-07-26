@@ -757,13 +757,26 @@ select:focus {
   padding: 8px 12px;
 }
 
+/* Scroll container for the windowed transcript entries. */
 .transcript {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   padding: 4px;
+}
+/* Spacer sized to every entry; rows are positioned inside it. */
+.transcript-rows {
+  position: relative;
+  width: 100%;
+}
+.transcript-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* Stands in for the flex gap this list used before it was windowed, and is
+     part of the measured height so spacing survives re-measurement. */
+  padding-bottom: 8px;
 }
 .transcript-item {
   display: flex;

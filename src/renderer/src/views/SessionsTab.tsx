@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Project, SessionPermissionMode, SessionSummary, TranscriptItem } from '@shared/domain'
 import { formatRelativeTime, tracker, useTrackerEvent } from '../tracker'
+
+/**
+ * Opening guess for a transcript entry's height. Entries vary wildly - a
+ * one-line status note next to a collapsed tool call next to a long assistant
+ * message - so every row is measured; this only seeds the scrollbar.
+ */
+const ESTIMATED_ENTRY_HEIGHT = 64
+
+/** Entries kept mounted past the viewport so scrolling does not flash blanks. */
+const TRANSCRIPT_OVERSCAN = 12
 
 const MODES: Array<{ id: SessionPermissionMode; label: string }> = [
   { id: 'plan', label: 'Plan' },
@@ -164,7 +175,6 @@ function SessionDetail({
   const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
     tracker
@@ -194,10 +204,6 @@ function SessionDetail({
       [session.id, load]
     )
   )
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [items])
 
   const act = (fn: () => Promise<unknown>): void => {
     setError(null)
@@ -286,13 +292,9 @@ function SessionDetail({
         </div>
       )}
 
-      <div className="transcript" ref={scrollRef}>
-        {items === null && <div className="empty-state">Loading transcript…</div>}
-        {items?.map((item, i) => (
-          <TranscriptEntry key={i} item={item} />
-        ))}
-        {items?.length === 0 && <div className="empty-state">Empty transcript.</div>}
-      </div>
+      {items === null && <div className="empty-state">Loading transcript…</div>}
+      {items?.length === 0 && <div className="empty-state">Empty transcript.</div>}
+      {items !== null && items.length > 0 && <Transcript items={items} />}
 
       {error && <div className="error-text">{error}</div>}
 
@@ -325,6 +327,51 @@ function SessionDetail({
           }
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * The session's transcript, windowed: only entries near the viewport are in the
+ * DOM, so a long-running session's transcript costs the same to render as a
+ * fresh one. Heights are measured rather than assumed - entries differ in size
+ * and a tool entry changes height when the user expands it - and the view
+ * follows the tail as new entries arrive.
+ */
+function Transcript({ items }: { items: TranscriptItem[] }): React.JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ENTRY_HEIGHT,
+    overscan: TRANSCRIPT_OVERSCAN
+  })
+
+  // Stay pinned to the newest entry as the agent talks, as the unwindowed
+  // version did by scrolling to the full height.
+  const lastIndex = items.length - 1
+  useEffect(() => {
+    if (lastIndex >= 0) virtualizer.scrollToIndex(lastIndex, { align: 'end' })
+  }, [lastIndex, virtualizer])
+
+  return (
+    <div className="transcript" ref={scrollRef}>
+      <div className="transcript-rows" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => (
+          <div
+            key={virtualItem.key}
+            data-index={virtualItem.index}
+            // Measured on mount and re-measured when the entry's own size
+            // changes, which is what keeps an expanded tool entry from
+            // overlapping the one after it.
+            ref={virtualizer.measureElement}
+            className="transcript-row"
+            style={{ transform: `translateY(${virtualItem.start}px)` }}
+          >
+            <TranscriptEntry item={items[virtualItem.index]} />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
