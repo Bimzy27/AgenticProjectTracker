@@ -49,6 +49,20 @@ export function ProjectView({
 }: Props): React.JSX.Element {
   const [editingLinks, setEditingLinks] = useState(false)
   const [editingVercel, setEditingVercel] = useState(false)
+  // Once a tab is visited it stays mounted for this ProjectView's lifetime
+  // (ADR 0005): switching tabs hides via CSS instead of unmounting, so a
+  // revisited tab doesn't re-fire its mount-time IPC calls or flash a loading
+  // state. Bounded to at most TABS.length entries; ProjectView itself fully
+  // remounts per project via the `key` prop in App.tsx, so nothing leaks
+  // across projects. Adjusted during render (not an effect) per React's
+  // "adjusting state when a prop changes" pattern.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<ProjectTab>>(() => new Set([tab]))
+  const [prevTab, setPrevTab] = useState(tab)
+  if (tab !== prevTab) {
+    setPrevTab(tab)
+    if (!visitedTabs.has(tab)) setVisitedTabs(new Set(visitedTabs).add(tab))
+  }
+
   return (
     <div className="project-view">
       <header className="view-header">
@@ -133,20 +147,52 @@ export function ProjectView({
           </button>
         ))}
       </div>
-      {tab === 'tasks' && (
-        <TasksTab project={project} initialSelectedId={focusTaskId} onOpenTranscript={onFocusSession} />
+      {visitedTabs.has('tasks') && (
+        <div className={tabPanelClass(tab === 'tasks')}>
+          <TasksTab project={project} initialSelectedId={focusTaskId} onOpenTranscript={onFocusSession} />
+        </div>
       )}
-      {tab === 'diffs' && <DiffsTab project={project} />}
-      {tab === 'sessions' && (
-        <SessionsTab project={project} initialSelectedId={focusSessionId} onOpenTask={onFocusTask} />
+      {visitedTabs.has('diffs') && (
+        <div className={tabPanelClass(tab === 'diffs')}>
+          <DiffsTab project={project} />
+        </div>
       )}
-      {tab === 'terminals' && <TerminalsTab project={project} />}
-      {tab === 'pipelines' && <PipelinesTab project={project} />}
-      {tab === 'release' && <ReleaseTab project={project} onOpenTask={onFocusTask} />}
-      {tab === 'analytics' && <AnalyticsTab key={project.id} project={project} />}
-      {tab === 'skills' && <SkillsTab project={project} />}
+      {visitedTabs.has('sessions') && (
+        <div className={tabPanelClass(tab === 'sessions')}>
+          <SessionsTab project={project} initialSelectedId={focusSessionId} onOpenTask={onFocusTask} />
+        </div>
+      )}
+      {visitedTabs.has('terminals') && (
+        <div className={tabPanelClass(tab === 'terminals')}>
+          <TerminalsTab project={project} />
+        </div>
+      )}
+      {visitedTabs.has('pipelines') && (
+        <div className={tabPanelClass(tab === 'pipelines')}>
+          <PipelinesTab project={project} />
+        </div>
+      )}
+      {visitedTabs.has('release') && (
+        <div className={tabPanelClass(tab === 'release')}>
+          <ReleaseTab project={project} onOpenTask={onFocusTask} />
+        </div>
+      )}
+      {visitedTabs.has('analytics') && (
+        <div className={tabPanelClass(tab === 'analytics')}>
+          <AnalyticsTab key={project.id} project={project} />
+        </div>
+      )}
+      {visitedTabs.has('skills') && (
+        <div className={tabPanelClass(tab === 'skills')}>
+          <SkillsTab project={project} />
+        </div>
+      )}
       {editingLinks && <ProjectLinksDialog project={project} onClose={() => setEditingLinks(false)} />}
       {editingVercel && <ProjectVercelDialog project={project} onClose={() => setEditingVercel(false)} />}
     </div>
   )
+}
+
+function tabPanelClass(active: boolean): string {
+  return active ? 'tab-panel' : 'tab-panel tab-panel-hidden'
 }

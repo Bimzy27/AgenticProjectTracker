@@ -233,11 +233,13 @@ function widget(title: string): Locator {
   return page.locator('.widget-card').filter({ has: page.getByRole('heading', { name: title }) })
 }
 
-/** Remounts the Analytics tab so it refetches against the fake servers. */
+/**
+ * Refetches every widget against the fake servers. Tab switching no longer
+ * does this: a visited tab stays mounted (ADR 0005), so the dashboard's
+ * explicit Refresh is what re-reads the sources.
+ */
 async function reopenAnalyticsTab(): Promise<void> {
-  const tabBar = page.locator('.tab-bar')
-  await tabBar.getByRole('button', { name: 'Tasks' }).click()
-  await tabBar.getByRole('button', { name: 'Analytics', exact: true }).click()
+  await page.getByRole('button', { name: '↻ Refresh' }).click()
 }
 
 test('the default dashboard renders the GitHub traffic and releases widgets', async () => {
@@ -349,7 +351,10 @@ test('a source failure shows its error on the widget card; recovery renders data
   await reopenAnalyticsTab()
   await expect(page.locator('.release-card')).toHaveCount(RELEASES.length)
   await expect(widget('GitHub views').locator('.bar')).toHaveCount(DAYS)
-  await expect(page.locator('.error-text')).toHaveCount(0)
+  // Scoped to the dashboard: other project tabs stay mounted once visited
+  // (ADR 0005), and this fixture's GitHub API serves no issues route, so the
+  // Tasks tab holds an unrelated error of its own.
+  await expect(page.locator('.analytics-tab .error-text')).toHaveCount(0)
 })
 
 test('a JSON metric widget with an encrypted bearer token renders third-party data', async () => {
@@ -397,7 +402,8 @@ test('widgets can be reordered and removed, and the layout survives a remount', 
   await expect(page.locator('.widget-card')).toHaveCount(3)
   await expect(widget('GitHub clones')).toHaveCount(0)
 
-  // The customized layout is persisted, not view state: it survives a remount.
+  // The customized layout is persisted, not view state: refreshing re-reads it
+  // from the main process's store and the customization is still there.
   await reopenAnalyticsTab()
   await expect(page.locator('.widget-card')).toHaveCount(3)
   await expect(widget('GitHub clones')).toHaveCount(0)

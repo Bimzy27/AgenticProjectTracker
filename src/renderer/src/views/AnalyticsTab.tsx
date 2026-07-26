@@ -35,18 +35,27 @@ export function AnalyticsTab({ project }: { project: Project }): React.JSX.Eleme
     [project.id]
   )
 
-  // The tab is keyed by project id in ProjectView, so a project switch
-  // remounts with fresh state and this effect only ever loads.
-  useEffect(() => {
+  /**
+   * Load the layout and refetch every widget from its source. Also backs the
+   * Refresh button: unlike the other tabs this one has no live event feed and
+   * no polling, and it stays mounted across tab switches (ADR 0005), so an
+   * explicit refresh is the only way to pick up newer source data.
+   */
+  const load = useCallback(() => {
     tracker.invoke('listWidgetKinds').then(setKinds).catch(console.error)
     tracker
       .invoke('getAnalyticsWidgets', project.id)
       .then((list) => {
         setWidgets(list)
+        setLayoutError(null)
         for (const widget of list) fetchData(widget.id)
       })
       .catch((err) => setLayoutError(err instanceof Error ? err.message : String(err)))
   }, [project.id, fetchData])
+
+  // The tab is keyed by project id in ProjectView, so a project switch
+  // remounts with fresh state and this effect only ever loads.
+  useEffect(load, [load])
 
   /** Persist a full layout; refetches data only where `refetch` says so. */
   const saveLayout = async (
@@ -95,7 +104,12 @@ export function AnalyticsTab({ project }: { project: Project }): React.JSX.Eleme
         <span className="muted">
           Your dashboard for this project - add widgets from any supported source.
         </span>
-        <button onClick={() => setDialog({ widget: null })}>+ Add widget</button>
+        <div className="widget-toolbar-actions">
+          <button onClick={() => setDialog({ widget: null })}>+ Add widget</button>
+          <button title="Refetch every widget from its source" onClick={load}>
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {widgets.length === 0 ? (

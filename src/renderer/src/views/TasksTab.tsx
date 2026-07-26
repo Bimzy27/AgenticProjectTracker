@@ -63,6 +63,16 @@ export function TasksTab({ project, initialSelectedId, onOpenTranscript }: Props
 
   const [branch, setBranch] = useState<string | null>(null)
 
+  // The tab stays mounted across visits (ADR 0005): a fresh focus target
+  // (e.g. "View task" from a run panel) must still take effect even when
+  // this isn't the tab's first mount. Adjusted during render (not an effect)
+  // per React's "adjusting state when a prop changes" pattern.
+  const [prevInitialSelectedId, setPrevInitialSelectedId] = useState(initialSelectedId)
+  if (initialSelectedId !== prevInitialSelectedId) {
+    setPrevInitialSelectedId(initialSelectedId)
+    if (initialSelectedId) setSelectedId(initialSelectedId)
+  }
+
   const load = useCallback(() => {
     tracker.invoke('listTasks', project.id).then(setTasks).catch(console.error)
   }, [project.id])

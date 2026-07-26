@@ -427,6 +427,11 @@ select:focus {
   font-weight: 600;
 }
 
+/* A visited project tab stays mounted (ADR 0005); switching just hides it. */
+.tab-panel-hidden {
+  display: none;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;
@@ -846,6 +851,11 @@ tr.line-del,
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.widget-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .widget-grid {
   display: grid;

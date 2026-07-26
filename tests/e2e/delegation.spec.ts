@@ -262,9 +262,11 @@ test('a running task can be stopped manually and moves to failed', async () => {
   await expect(page.getByText('reading the codebase').first()).toBeVisible()
   await page.getByRole('button', { name: '⏹ Stop run' }).click()
   await expect(page.locator('.task-detail-header .badge.task-failed')).toBeVisible()
-  // The transcript survives the stop.
+  // The transcript survives the stop. Scoped to .transcript: the Tasks tab
+  // stays mounted behind this one (ADR 0005) and its run timeline still shows
+  // the same progress-note text, so an unscoped page-wide search is ambiguous.
   await page.getByRole('button', { name: 'Open transcript →' }).click()
-  await expect(page.getByText('reading the codebase').first()).toBeVisible()
+  await expect(page.locator('.transcript').getByText('reading the codebase').first()).toBeVisible()
 })
 
 test('archived tasks can be viewed, revived to the backlog, and archived manually', async () => {
