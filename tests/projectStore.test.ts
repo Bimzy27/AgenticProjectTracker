@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -32,8 +32,9 @@ describe('ProjectStore', () => {
     expect(store.list()[0].name).toBe('Demo')
   })
 
-  it('persists across instances (registry file survives reload)', () => {
+  it('persists across instances (registry file survives reload)', async () => {
     store.add(input())
+    await store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.list()).toHaveLength(1)
     expect(reloaded.list()[0].github).toEqual({ owner: 'me', repo: 'demo' })
@@ -81,9 +82,10 @@ describe('ProjectStore', () => {
     ])
   })
 
-  it('persists important links across instances', () => {
+  it('persists important links across instances', async () => {
     const project = store.add(input())
     store.update(project.id, { links: [{ label: 'Docs', url: 'http://localhost:3000/docs' }] })
+    await store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.list()[0].links).toEqual([{ label: 'Docs', url: 'http://localhost:3000/docs' }])
   })
@@ -109,9 +111,10 @@ describe('ProjectStore', () => {
     expect(store.getOrThrow(project.id).links).toEqual([])
   })
 
-  it('defaults links for registry files written before links existed', () => {
+  it('defaults links for registry files written before links existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
+    await store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].links
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -151,16 +154,18 @@ describe('ProjectStore', () => {
     expect(store.update(project.id, { vercel: null }).vercel).toBeNull()
   })
 
-  it('persists the Vercel link across instances', () => {
+  it('persists the Vercel link across instances', async () => {
     const project = store.add(input())
     store.update(project.id, { vercel: { projectId: 'prj_demo', teamId: 'team_x' } })
+    await store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).vercel).toEqual({ projectId: 'prj_demo', teamId: 'team_x' })
   })
 
-  it('defaults the Vercel link for registry files written before it existed', () => {
+  it('defaults the Vercel link for registry files written before it existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
+    await store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].vercel
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -172,17 +177,19 @@ describe('ProjectStore', () => {
     expect(store.add(input()).looping).toBe(false)
   })
 
-  it('toggles looping mode via patch and persists it', () => {
+  it('toggles looping mode via patch and persists it', async () => {
     const project = store.add(input())
     expect(store.update(project.id, { looping: true }).looping).toBe(true)
+    await store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).looping).toBe(true)
     expect(store.update(project.id, { looping: false }).looping).toBe(false)
   })
 
-  it('defaults looping off for registry files written before looping existed', () => {
+  it('defaults looping off for registry files written before looping existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
+    await store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].looping
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -194,17 +201,19 @@ describe('ProjectStore', () => {
     expect(store.add(input()).agentTaskCreation).toBe(false)
   })
 
-  it('toggles agent task creation via patch and persists it', () => {
+  it('toggles agent task creation via patch and persists it', async () => {
     const project = store.add(input())
     expect(store.update(project.id, { agentTaskCreation: true }).agentTaskCreation).toBe(true)
+    await store.flushPendingWrites()
     const reloaded = new ProjectStore(dir)
     expect(reloaded.getOrThrow(project.id).agentTaskCreation).toBe(true)
     expect(store.update(project.id, { agentTaskCreation: false }).agentTaskCreation).toBe(false)
   })
 
-  it('defaults agent task creation off for registry files written before it existed', () => {
+  it('defaults agent task creation off for registry files written before it existed', async () => {
     const project = store.add(input())
     const registryPath = join(dir, 'projects.json')
+    await store.flushPendingWrites()
     const raw = JSON.parse(readFileSync(registryPath, 'utf8'))
     delete raw.projects[0].agentTaskCreation
     writeFileSync(registryPath, JSON.stringify(raw))
@@ -218,5 +227,37 @@ describe('ProjectStore', () => {
     expect(store.list()).toHaveLength(0)
     expect(() => store.remove(project.id)).toThrow(/Unknown project/)
     expect(() => store.getOrThrow(project.id)).toThrow(/Unknown project/)
+  })
+
+  describe('write scheduling (ADR 0004)', () => {
+    it('does not write synchronously: a mutation lands on disk only once flushed', async () => {
+      store.add(input())
+
+      // The write is scheduled, not synchronous - the registry does not exist
+      // yet immediately after add() returns.
+      expect(existsSync(join(dir, 'projects.json'))).toBe(false)
+
+      await store.flushPendingWrites()
+      expect(existsSync(join(dir, 'projects.json'))).toBe(true)
+    })
+
+    it('reads its own writes from memory while the write is still pending', () => {
+      const project = store.add(input())
+      // In-memory state is authoritative, so callers never observe the lag.
+      expect(store.getOrThrow(project.id).name).toBe('Demo')
+      expect(store.list()).toHaveLength(1)
+    })
+
+    it('coalesces a burst of edits into the last persisted state', async () => {
+      const project = store.add(input())
+      store.update(project.id, { looping: true })
+      store.update(project.id, { looping: false })
+      store.update(project.id, { looping: true })
+
+      await store.flushPendingWrites()
+
+      const reloaded = new ProjectStore(dir)
+      expect(reloaded.getOrThrow(project.id).looping).toBe(true)
+    })
   })
 })

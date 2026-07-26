@@ -106,7 +106,8 @@ function composeServices(): {
   watchers: Watchers
   store: ProjectStore
   terminals: TerminalService
-  orchestrator: RunOrchestrator
+  /** Stores whose debounced writes must land before the app exits (ADR 0004). */
+  flushables: Array<{ flushPendingWrites(): Promise<void> }>
 } {
   const userDataDir = app.getPath('userData')
 
@@ -209,6 +210,7 @@ function composeServices(): {
     Number.isFinite(pollMsOverride) && pollMsOverride > 0 ? pollMsOverride : undefined
   )
 
+  const dashboards = new DashboardStore(userDataDir, cipher)
   const analytics = new AnalyticsService(
     [
       new GithubTrafficProvider(github, 'views'),
@@ -219,7 +221,7 @@ function composeServices(): {
       // APT_VERCEL_API is a test seam; undefined falls back to the real Vercel API.
       new VercelAnalyticsProvider({ apiBase: process.env.APT_VERCEL_API })
     ],
-    new DashboardStore(userDataDir, cipher)
+    dashboards
   )
   const projects = new ProjectService(store, git, sessions, pipelines, orchestrator)
 
@@ -365,7 +367,7 @@ function composeServices(): {
     notification.show()
   }
 
-  return { pipelines, watchers, store, terminals, orchestrator }
+  return { pipelines, watchers, store, terminals, flushables: [orchestrator, store, dashboards] }
 }
 
 function safeList<T>(fn: () => T[]): T[] {
@@ -383,7 +385,7 @@ if (process.env.APT_USER_DATA_DIR) {
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.branden.agentic-project-tracker')
-  const { pipelines, watchers, store, terminals, orchestrator } = composeServices()
+  const { pipelines, watchers, store, terminals, flushables } = composeServices()
 
   mainWindow = createWindow()
   watchers.sync(store.list())
@@ -393,9 +395,10 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
   })
 
-  // Run-history writes are debounced (ADR 0004); delay the actual quit until
-  // any pending write lands, so a graceful quit never loses the latest state.
-  // Bounded by a timeout so an unresponsive filesystem cannot hang shutdown.
+  // Run-history, project, and dashboard writes are debounced (ADR 0004); delay
+  // the actual quit until any pending write lands, so a graceful quit never
+  // loses the latest state. Bounded by a timeout so an unresponsive filesystem
+  // cannot hang shutdown.
   const FLUSH_TIMEOUT_MS = 5000
   let quitting = false
   app.on('before-quit', (event) => {
@@ -405,7 +408,8 @@ app.whenReady().then(() => {
     void watchers.close()
     terminals.closeAll()
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS))
-    void Promise.race([orchestrator.flushPendingWrites(), timeout]).finally(() => {
+    const flushed = Promise.all(flushables.map((f) => f.flushPendingWrites()))
+    void Promise.race([flushed, timeout]).finally(() => {
       quitting = true
       app.quit()
     })

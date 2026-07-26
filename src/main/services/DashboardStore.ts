@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AnalyticsWidget, AnalyticsWidgetInput } from '@shared/domain'
+import { DebouncedWriter } from './DebouncedWriter'
 import type { SecretCipher } from './TokenStore'
+
+/** Matches ProjectStore: long enough to coalesce a burst of layout edits. */
+const WRITE_DEBOUNCE_MS = 150
 
 interface StoredWidget {
   id: string
@@ -22,8 +26,9 @@ interface DashboardsFile {
 /**
  * JSON-file store for per-project analytics dashboards (the user's widget
  * layout). Loaded into memory on construction; every mutation is written
- * atomically (temp file + rename), like ProjectStore. A missing or corrupt
- * file falls back to "no customizations" so bad data can never block startup.
+ * asynchronously and debounced, atomically (temp file + rename), like
+ * ProjectStore. A missing or corrupt file falls back to "no customizations"
+ * so bad data can never block startup.
  *
  * Secret config values (API tokens for widget sources) are encrypted with the
  * injected SecretCipher (Electron safeStorage in production) before touching
@@ -31,6 +36,7 @@ interface DashboardsFile {
  */
 export class DashboardStore {
   private readonly filePath: string
+  private readonly writer = new DebouncedWriter(WRITE_DEBOUNCE_MS)
   private projects: Record<string, StoredWidget[]> = {}
 
   constructor(
@@ -39,6 +45,11 @@ export class DashboardStore {
   ) {
     this.filePath = join(userDataDir, 'dashboards.json')
     this.load()
+  }
+
+  /** Land any debounced write immediately; call before the app quits. */
+  flushPendingWrites(): Promise<void> {
+    return this.writer.flushAll()
   }
 
   /** The project's stored layout, or null when it was never customized. */
@@ -124,11 +135,7 @@ export class DashboardStore {
   }
 
   private save(): void {
-    const file: DashboardsFile = { version: 1, projects: this.projects }
-    const tmpPath = this.filePath + '.tmp'
-    mkdirSync(dirname(this.filePath), { recursive: true })
-    writeFileSync(tmpPath, JSON.stringify(file, null, 2), 'utf8')
-    renameSync(tmpPath, this.filePath)
+    this.writer.write(this.filePath, { version: 1, projects: this.projects } satisfies DashboardsFile)
   }
 }
 

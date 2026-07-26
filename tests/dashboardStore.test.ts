@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -42,7 +42,7 @@ describe('DashboardStore', () => {
     expect(store.getWidgets('p1')).toBeNull()
   })
 
-  it('persists layouts across instances and assigns ids to new widgets', () => {
+  it('persists layouts across instances and assigns ids to new widgets', async () => {
     const store = new DashboardStore(dir, cipher)
     const saved = store.setWidgets('p1', [
       { kind: 'json-metric', title: 'Visitors', config: { url: 'https://x.test' } }
@@ -56,11 +56,12 @@ describe('DashboardStore', () => {
       secretsSet: []
     })
 
+    await store.flushPendingWrites()
     const reloaded = new DashboardStore(dir, cipher)
     expect(reloaded.getWidgets('p1')).toEqual(saved)
   })
 
-  it('stores secrets encrypted at rest and reports them only as key names', () => {
+  it('stores secrets encrypted at rest and reports them only as key names', async () => {
     const store = new DashboardStore(dir, cipher)
     const [saved] = store.setWidgets('p1', [
       { kind: 'json-metric', title: null, config: {}, secrets: { token: 'hunter2' } }
@@ -68,6 +69,7 @@ describe('DashboardStore', () => {
     expect(saved.secretsSet).toEqual(['token'])
     expect(JSON.stringify(saved)).not.toContain('hunter2')
 
+    await store.flushPendingWrites()
     const raw = readFileSync(join(dir, 'dashboards.json'), 'utf8')
     expect(raw).not.toContain('hunter2')
     expect(store.getSecrets('p1', saved.id)).toEqual({ token: 'hunter2' })
@@ -100,12 +102,13 @@ describe('DashboardStore', () => {
     ).toThrow(/encryption is unavailable/)
   })
 
-  it('skips secrets that no longer decrypt instead of breaking the dashboard', () => {
+  it('skips secrets that no longer decrypt instead of breaking the dashboard', async () => {
     const store = new DashboardStore(dir, cipher)
     const [saved] = store.setWidgets('p1', [
       { kind: 'json-metric', title: null, config: {}, secrets: { token: 'hunter2' } }
     ])
     // Simulate an OS vault key change: same file, cipher that rejects old data.
+    await store.flushPendingWrites()
     const rotated = new DashboardStore(dir, {
       isAvailable: () => true,
       encrypt: (text) => Buffer.from(`new:${text}`),
@@ -139,11 +142,36 @@ describe('DashboardStore', () => {
     expect(store.getWidgets('p1')?.[0].id).toBe('ok')
   })
 
-  it('drops a removed project so the file does not accumulate orphans', () => {
+  it('drops a removed project so the file does not accumulate orphans', async () => {
     const store = new DashboardStore(dir, cipher)
     store.setWidgets('p1', [{ kind: 'json-metric', title: null, config: {} }])
     store.deleteProject('p1')
     expect(store.getWidgets('p1')).toBeNull()
+    await store.flushPendingWrites()
     expect(new DashboardStore(dir, cipher).getWidgets('p1')).toBeNull()
+  })
+
+  describe('write scheduling (ADR 0004)', () => {
+    it('does not write synchronously: a layout lands on disk only once flushed', async () => {
+      const store = new DashboardStore(dir, cipher)
+      store.setWidgets('p1', [{ kind: 'json-metric', title: null, config: {} }])
+
+      expect(existsSync(join(dir, 'dashboards.json'))).toBe(false)
+
+      await store.flushPendingWrites()
+      expect(existsSync(join(dir, 'dashboards.json'))).toBe(true)
+    })
+
+    it('coalesces a burst of layout edits into the last persisted state', async () => {
+      const store = new DashboardStore(dir, cipher)
+      store.setWidgets('p1', [{ kind: 'json-metric', title: 'first', config: {} }])
+      store.setWidgets('p1', [{ kind: 'json-metric', title: 'second', config: {} }])
+      store.setWidgets('p1', [{ kind: 'json-metric', title: 'third', config: {} }])
+
+      await store.flushPendingWrites()
+
+      const reloaded = new DashboardStore(dir, cipher)
+      expect(reloaded.getWidgets('p1')?.[0].title).toBe('third')
+    })
   })
 })

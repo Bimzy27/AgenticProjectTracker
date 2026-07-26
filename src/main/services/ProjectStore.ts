@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AddProjectInput, Project, ProjectLink, ProjectPatch, VercelProjectRef } from '@shared/domain'
+import { DebouncedWriter } from './DebouncedWriter'
+
+/**
+ * Config edits are user-paced, so this only needs to be long enough to
+ * coalesce a burst (dragging widget order, toggling a switch repeatedly)
+ * while keeping the crash-loss window small.
+ */
+const WRITE_DEBOUNCE_MS = 150
 
 interface RegistryFile {
   version: 1
@@ -10,16 +18,24 @@ interface RegistryFile {
 
 /**
  * JSON-file registry of tracked projects (D4).
- * Loaded into memory on construction; every mutation is written atomically
- * (write to a temp file, then rename over the registry).
+ * Loaded into memory on construction; every mutation is written asynchronously
+ * and debounced (see ADR 0004), atomically (temp file + rename). In-memory
+ * state is authoritative for the process lifetime, so a caller never observes
+ * the lag; `flushPendingWrites` makes a pending write land before quit.
  */
 export class ProjectStore {
   private readonly filePath: string
+  private readonly writer = new DebouncedWriter(WRITE_DEBOUNCE_MS)
   private projects: Project[] = []
 
   constructor(userDataDir: string) {
     this.filePath = join(userDataDir, 'projects.json')
     this.load()
+  }
+
+  /** Land any debounced write immediately; call before the app quits. */
+  flushPendingWrites(): Promise<void> {
+    return this.writer.flushAll()
   }
 
   list(): Project[] {
@@ -108,11 +124,7 @@ export class ProjectStore {
   }
 
   private save(): void {
-    const file: RegistryFile = { version: 1, projects: this.projects }
-    const tmpPath = this.filePath + '.tmp'
-    mkdirSync(dirname(this.filePath), { recursive: true })
-    writeFileSync(tmpPath, JSON.stringify(file, null, 2), 'utf8')
-    renameSync(tmpPath, this.filePath)
+    this.writer.write(this.filePath, { version: 1, projects: this.projects } satisfies RegistryFile)
   }
 }
 
