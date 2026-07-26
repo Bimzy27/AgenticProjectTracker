@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -453,7 +453,7 @@ describe('RunOrchestrator', () => {
     expect(tasks.getOrThrow(task.id).state).toBe('running')
   })
 
-  it('stores the completion links and defaults fields missing from older persisted records', () => {
+  it('stores the completion links and defaults fields missing from older persisted records', async () => {
     const orch = makeOrchestrator()
     const task = makeTask()
     orch.delegate(task.id)
@@ -472,13 +472,14 @@ describe('RunOrchestrator', () => {
     expect(completed.completion!.debugUrl).toBe('http://localhost:5173/login')
     expect(completed.completion!.changesUrl).toBe('https://github.com/o/r/pull/7')
 
-    // Strip the fields from the persisted record to simulate a release before they existed.
-    const runsPath = join(userData, 'runs.json')
-    const persisted = JSON.parse(readFileSync(runsPath, 'utf8'))
-    delete persisted.runs[0].completion.debugUrl
-    delete persisted.runs[0].completion.changesUrl
-    delete persisted.runs[0].filesChanged
-    writeFileSync(runsPath, JSON.stringify(persisted))
+    // Strip the fields from the persisted per-run file to simulate a release before they existed.
+    await orch.flushPendingWrites()
+    const runPath = join(userData, 'runs', `${completed.id}.json`)
+    const persisted = JSON.parse(readFileSync(runPath, 'utf8'))
+    delete persisted.run.completion.debugUrl
+    delete persisted.run.completion.changesUrl
+    delete persisted.run.filesChanged
+    writeFileSync(runPath, JSON.stringify(persisted))
 
     const orch2 = new RunOrchestrator(userData, tasks, new FakeSessions(), sink as RunEventSink, {
       claudeHome
@@ -653,7 +654,9 @@ describe('RunOrchestrator', () => {
     const sdkId = orch.latestRun(task.id)!.sdkSessionId
     expect(sdkId).toBe(`sdk-${session.id}`)
 
-    // simulate a restart: fresh orchestrator over the same persisted state
+    // simulate a graceful restart: flush debounced writes (as before-quit does),
+    // then load a fresh orchestrator over the same persisted state
+    await orch.flushPendingWrites()
     const sessions2 = new FakeSessions()
     const orch2 = new RunOrchestrator(userData, tasks, sessions2, sink as RunEventSink, { claudeHome })
     orch2.restore()
@@ -953,6 +956,82 @@ describe('RunOrchestrator', () => {
 
       expect(tasks.getOrThrow(task.id).state).toBe('failed')
       expect(orch.latestRun(task.id)!.state).toBe('failed')
+    })
+  })
+
+  describe('run-history persistence (ADR 0004)', () => {
+    it('persists each run to its own file rather than one shared runs.json', async () => {
+      const orch = makeOrchestrator()
+      const a = makeTask('p1', { title: 'First' })
+      const b = makeTask('p2', { title: 'Second' })
+      orch.delegate(a.id)
+      orch.delegate(b.id)
+      const runA = orch.latestRun(a.id)!
+      const runB = orch.latestRun(b.id)!
+
+      await orch.flushPendingWrites()
+
+      expect(existsSync(join(userData, 'runs', `${runA.id}.json`))).toBe(true)
+      expect(existsSync(join(userData, 'runs', `${runB.id}.json`))).toBe(true)
+      expect(existsSync(join(userData, 'runs.json'))).toBe(false)
+      const persistedA = JSON.parse(readFileSync(join(userData, 'runs', `${runA.id}.json`), 'utf8'))
+      expect(persistedA.run.id).toBe(runA.id)
+    })
+
+    it('does not write synchronously: a committed run lands on disk only after the debounce window', async () => {
+      const orch = makeOrchestrator()
+      const task = makeTask()
+      orch.delegate(task.id)
+      const run = orch.latestRun(task.id)!
+
+      // The write is scheduled, not synchronous - immediately after delegate()
+      // returns, nothing has hit disk yet.
+      expect(existsSync(join(userData, 'runs', `${run.id}.json`))).toBe(false)
+
+      await orch.flushPendingWrites()
+      expect(existsSync(join(userData, 'runs', `${run.id}.json`))).toBe(true)
+    })
+
+    it('migrates a legacy monolithic runs.json into per-run files on load, keeping a .bak backup', () => {
+      const orch = makeOrchestrator()
+      const task = makeTask()
+      orch.delegate(task.id)
+      sessions.turn(sessions.last(), status('working', 'mid-flight'), 1234, ['src/a.ts'])
+      const run = orch.latestRun(task.id)!
+
+      // Simulate the pre-ADR-0004 layout: everything in one runs.json, no runs/ dir.
+      rmSync(join(userData, 'runs'), { recursive: true, force: true })
+      writeFileSync(join(userData, 'runs.json'), JSON.stringify({ version: 1, runs: [run] }))
+
+      const orch2 = new RunOrchestrator(userData, tasks, new FakeSessions(), sink as RunEventSink, {
+        claudeHome
+      })
+
+      const migrated = orch2.latestRun(task.id)!
+      expect(migrated).toMatchObject({ id: run.id, progressNote: 'mid-flight', tokensUsed: 1234 })
+      expect(existsSync(join(userData, 'runs', `${run.id}.json`))).toBe(true)
+      expect(existsSync(join(userData, 'runs.json'))).toBe(false)
+      expect(existsSync(join(userData, 'runs.json.bak'))).toBe(true)
+    })
+
+    it('skips a corrupted run file instead of failing to load the rest of the history', async () => {
+      const orch = makeOrchestrator()
+      const good = makeTask('p1', { title: 'Fine' })
+      const corrupted = makeTask('p2', { title: 'Corrupted' })
+      orch.delegate(good.id)
+      orch.delegate(corrupted.id)
+      const goodRun = orch.latestRun(good.id)!
+      const corruptedRun = orch.latestRun(corrupted.id)!
+      await orch.flushPendingWrites()
+
+      writeFileSync(join(userData, 'runs', `${corruptedRun.id}.json`), '{ not valid json')
+
+      const orch2 = new RunOrchestrator(userData, tasks, new FakeSessions(), sink as RunEventSink, {
+        claudeHome
+      })
+
+      expect(orch2.latestRun(good.id)!.id).toBe(goodRun.id)
+      expect(orch2.latestRun(corrupted.id)).toBeNull()
     })
   })
 })

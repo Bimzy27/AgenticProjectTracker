@@ -106,6 +106,7 @@ function composeServices(): {
   watchers: Watchers
   store: ProjectStore
   terminals: TerminalService
+  orchestrator: RunOrchestrator
 } {
   const userDataDir = app.getPath('userData')
 
@@ -364,7 +365,7 @@ function composeServices(): {
     notification.show()
   }
 
-  return { pipelines, watchers, store, terminals }
+  return { pipelines, watchers, store, terminals, orchestrator }
 }
 
 function safeList<T>(fn: () => T[]): T[] {
@@ -382,7 +383,7 @@ if (process.env.APT_USER_DATA_DIR) {
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.branden.agentic-project-tracker')
-  const { pipelines, watchers, store, terminals } = composeServices()
+  const { pipelines, watchers, store, terminals, orchestrator } = composeServices()
 
   mainWindow = createWindow()
   watchers.sync(store.list())
@@ -392,10 +393,22 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
   })
 
-  app.on('before-quit', () => {
+  // Run-history writes are debounced (ADR 0004); delay the actual quit until
+  // any pending write lands, so a graceful quit never loses the latest state.
+  // Bounded by a timeout so an unresponsive filesystem cannot hang shutdown.
+  const FLUSH_TIMEOUT_MS = 5000
+  let quitting = false
+  app.on('before-quit', (event) => {
+    if (quitting) return
+    event.preventDefault()
     pipelines.stop()
     void watchers.close()
     terminals.closeAll()
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS))
+    void Promise.race([orchestrator.flushPendingWrites(), timeout]).finally(() => {
+      quitting = true
+      app.quit()
+    })
   })
 })
 

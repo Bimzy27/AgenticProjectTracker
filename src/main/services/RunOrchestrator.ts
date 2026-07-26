@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { DebouncedWriter } from './DebouncedWriter'
 import type {
   DelegationSummary,
   RunEscalationKind,
@@ -29,12 +30,22 @@ import type { TaskService } from './TaskService'
 
 const DEFAULT_MAX_CONCURRENT_RUNS = 3
 
+/** Coalesces bursts of same-run writes (e.g. several turns in quick succession) into one. */
+const WRITE_DEBOUNCE_MS = 300
+
 /** States from which a task may be manually paused (see RunOrchestrator.pause). */
 const PAUSABLE_STATES: ReadonlySet<TaskState> = new Set(['queued', 'running', 'needs-input'])
 
-interface RunsFile {
+/** Pre-ADR-0004 monolithic store: every run's full history in one file. */
+interface LegacyRunsFile {
   version: 1
   runs: RunRecord[]
+}
+
+/** One run's persisted file, keyed by run id (see ADR 0004). */
+interface RunFile {
+  version: 1
+  run: RunRecord
 }
 
 /** The slice of SessionService the orchestrator drives (design D1). */
@@ -92,7 +103,9 @@ interface RunRuntime {
  * completed runs to the user for review.
  */
 export class RunOrchestrator {
-  private readonly filePath: string
+  private readonly runsDir: string
+  private readonly legacyFilePath: string
+  private readonly writer = new DebouncedWriter(WRITE_DEBOUNCE_MS)
   private runs: RunRecord[] = []
   private readonly runtime = new Map<string, RunRuntime>()
   private readonly maxConcurrentRuns: number
@@ -107,12 +120,18 @@ export class RunOrchestrator {
     private readonly sink: RunEventSink,
     options: RunOrchestratorOptions = {}
   ) {
-    this.filePath = join(userDataDir, 'runs.json')
+    this.runsDir = join(userDataDir, 'runs')
+    this.legacyFilePath = join(userDataDir, 'runs.json')
     this.claudeHome = options.claudeHome
     this.maxConcurrentRuns = options.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS
     this.isProjectLooping = options.isProjectLooping ?? (() => false)
     this.allowAgentTasks = options.allowAgentTasks ?? (() => false)
     this.load()
+  }
+
+  /** Land every debounced run write immediately; call before the app quits (see ADR 0004). */
+  flushPendingWrites(): Promise<void> {
+    return this.writer.flushAll()
   }
 
   /**
@@ -135,9 +154,8 @@ export class RunOrchestrator {
       if (task && (task.state === 'running' || task.state === 'needs-input')) {
         this.tasks.setState(task.id, 'needs-input')
       }
-      this.sink.runUpdated(run)
+      this.commit(run)
     }
-    this.save()
     this.pump()
   }
 
@@ -771,41 +789,78 @@ export class RunOrchestrator {
   }
 
   private commit(run: RunRecord): void {
-    this.save()
+    this.writer.write(this.runFilePath(run.id), { version: 1, run } satisfies RunFile)
     this.sink.runUpdated(run)
   }
 
-  private load(): void {
-    let raw: string
-    try {
-      raw = readFileSync(this.filePath, 'utf8')
-    } catch {
-      this.runs = []
-      return
-    }
-    const parsed = JSON.parse(raw) as RunsFile
-    // tokensUsed, filesChanged, and the completion links were added after the
-    // first release; default them for older records.
-    this.runs = (Array.isArray(parsed.runs) ? parsed.runs : []).map((run) => ({
-      ...run,
-      tokensUsed: run.tokensUsed ?? 0,
-      filesChanged: run.filesChanged ?? [],
-      completion: run.completion
-        ? {
-            ...run.completion,
-            debugUrl: run.completion.debugUrl ?? null,
-            changesUrl: run.completion.changesUrl ?? null
-          }
-        : null
-    }))
+  private runFilePath(runId: string): string {
+    return join(this.runsDir, `${runId}.json`)
   }
 
-  private save(): void {
-    const file: RunsFile = { version: 1, runs: this.runs }
-    const tmpPath = this.filePath + '.tmp'
-    mkdirSync(dirname(this.filePath), { recursive: true })
+  private load(): void {
+    this.migrateLegacyStore()
+    this.runs = this.readAllRunFiles().sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  }
+
+  /**
+   * One-time migration from the pre-ADR-0004 monolithic runs.json into
+   * per-run files: rewriting the whole store on every turn blocked the main
+   * process, and the cost grew with total accumulated history. The legacy
+   * file is kept as runs.json.bak (not deleted) as a rollback safety net.
+   */
+  private migrateLegacyStore(): void {
+    if (!existsSync(this.legacyFilePath)) return
+    const raw = readFileSync(this.legacyFilePath, 'utf8')
+    const parsed = JSON.parse(raw) as LegacyRunsFile
+    mkdirSync(this.runsDir, { recursive: true })
+    for (const run of Array.isArray(parsed.runs) ? parsed.runs : []) {
+      const file: RunFile = { version: 1, run: normalizeRun(run) }
+      this.writeRunFileSync(run.id, file)
+    }
+    renameSync(this.legacyFilePath, `${this.legacyFilePath}.bak`)
+  }
+
+  /** Atomic write (tmp file + rename), same durability guarantee as the debounced path. */
+  private writeRunFileSync(runId: string, file: RunFile): void {
+    const finalPath = this.runFilePath(runId)
+    const tmpPath = `${finalPath}.tmp`
     writeFileSync(tmpPath, JSON.stringify(file, null, 2), 'utf8')
-    renameSync(tmpPath, this.filePath)
+    renameSync(tmpPath, finalPath)
+  }
+
+  private readAllRunFiles(): RunRecord[] {
+    if (!existsSync(this.runsDir)) return []
+    const runs: RunRecord[] = []
+    for (const entry of readdirSync(this.runsDir)) {
+      if (!entry.endsWith('.json')) continue
+      try {
+        const raw = readFileSync(join(this.runsDir, entry), 'utf8')
+        const parsed = JSON.parse(raw) as RunFile
+        if (parsed.run) runs.push(normalizeRun(parsed.run))
+      } catch {
+        // A single corrupted or unreadable run file must not take down the
+        // rest of the run history (same principle as session-parsing-stays-
+        // in-storage for Claude session files): skip it and keep loading.
+      }
+    }
+    return runs
+  }
+}
+
+// tokensUsed, filesChanged, and the completion links were added after the
+// first release; default them for older records (legacy or per-run).
+function normalizeRun(run: RunRecord): RunRecord {
+  return {
+    ...run,
+    tokensUsed: run.tokensUsed ?? 0,
+    filesChanged: run.filesChanged ?? [],
+    completion: run.completion
+      ? {
+          ...run.completion,
+          debugUrl: run.completion.debugUrl ?? null,
+          changesUrl: run.completion.changesUrl ?? null
+        }
+      : null
   }
 }
 
